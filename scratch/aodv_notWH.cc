@@ -42,9 +42,10 @@
 #include <iostream>
 #include <fstream>
 #include <filesystem>
+#include <boost/filesystem.hpp>
 
+namespace fs = std::system;
 using namespace ns3;
-namespace fs = std::filesystem;
 
 /**
  * \ingroup aodv-examples
@@ -146,6 +147,17 @@ NewFileName(const std::string &f)
     return f;
   }
 
+  std::string baseName = f.substr(0, f.find_last_of('.'));
+  std::string extension = f.substr(f.find_last_of('.'));
+  int counter = 0;
+  std::string newfile;
+
+  do{
+    newfile = baseName + "_" + std::to_string(counter) + extension;
+    counter ++;
+  } while (fs::exists(newfile));
+
+  return newfile;  
   
 }
 
@@ -166,7 +178,7 @@ int main (int argc, char **argv)
   std::ofstream MyFile3("com_num.txt");
 
   //パケットログ用のファイルを作成
-  filename = NewFilename(p_log);
+  filename = NewFileName(p_log);
 
   AodvExample test;
   if (!test.Configure (argc, argv))
