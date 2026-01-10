@@ -1312,7 +1312,8 @@ RoutingProtocol::RecvRequest (Ptr<Packet> p, Ipv4Address receiver, Ipv4Address s
       Ptr<NetDevice> dev = m_ipv4->GetNetDevice (m_ipv4->GetInterfaceForAddress (receiver));
       RoutingTableEntry newEntry (/*device=*/ dev, /*dst=*/ origin, /*validSeno=*/ true, /*seqNo=*/ rreqHeader.GetOriginSeqno (),
                                               /*iface=*/ m_ipv4->GetAddress (m_ipv4->GetInterfaceForAddress (receiver), 0), /*hops=*/ hop,
-                                              /*nextHop*/ src, /*timeLife=*/ Time ((2 * m_netTraversalTime - 2 * hop * m_nodeTraversalTime)));
+                                              /*nextHop*/ src, /*timeLife=*/ Time ((2 * m_netTraversalTime - 2 * hop * m_nodeTraversalTime)),
+                                              /*WH転送フラグ*/rreqHeader.GetWHForwardFlag());
       m_routingTable.AddRoute (newEntry);
     }
   else
@@ -1335,9 +1336,14 @@ RoutingProtocol::RecvRequest (Ptr<Packet> p, Ipv4Address receiver, Ipv4Address s
       toOrigin.SetHop (hop);
       toOrigin.SetLifeTime (std::max (Time (2 * m_netTraversalTime - 2 * hop * m_nodeTraversalTime),
                                       toOrigin.GetLifeTime ()));
+      toOrigin.SetWHForwardFlag(rreqHeader.GetWHForwardFlag());
       m_routingTable.Update (toOrigin);
       //m_nb.Update (src, Time (AllowedHelloLoss * HelloInterval));
     }
+  if(rreqHeader.GetWHForwardFlag() == 1)
+  {
+    NS_LOG_DEBUG("RREQがWHノードによって転送されました。  送信ノード：" << src);
+  }
 
 
   RoutingTableEntry toNeighbor;
@@ -1406,16 +1412,18 @@ RoutingProtocol::RecvRequest (Ptr<Packet> p, Ipv4Address receiver, Ipv4Address s
       if ((rreqHeader.GetUnknownSeqno () || (int32_t (toDst.GetSeqNo ()) - int32_t (rreqHeader.GetDstSeqno ()) >= 0))
           && toDst.GetValidSeqNo () )
         {
-          // if (!rreqHeader.GetDestinationOnly () && toDst.GetFlag () == VALID)
-          //   {
-          //     m_routingTable.LookupRoute (origin, toOrigin);
-          //     SendReplyByIntermediateNode (toDst, toOrigin, rreqHeader.GetGratuitousRrep ());
-          //     return;
-          //   }
+          if (!rreqHeader.GetDestinationOnly () && toDst.GetFlag () == VALID)
+            {
+              m_routingTable.LookupRoute (origin, toOrigin);
+              SendReplyByIntermediateNode (toDst, toOrigin, rreqHeader.GetGratuitousRrep ());
+              return;
+            }
           rreqHeader.SetDstSeqno (toDst.GetSeqNo ());
           rreqHeader.SetUnknownSeqno (false);
         }
     }
+
+    rreqHeader.SetWHForwardFlag(0);
 
   SocketIpTtlTag tag;
   p->RemovePacketTag (tag);
@@ -1450,6 +1458,64 @@ RoutingProtocol::RecvRequest (Ptr<Packet> p, Ipv4Address receiver, Ipv4Address s
       m_lastBcastTime = Simulator::Now ();
       Simulator::Schedule (Time (MilliSeconds (m_uniformRandomVariable->GetInteger (0, 10))), &RoutingProtocol::SendTo, this, socket, packet, destination);
 
+    }
+}
+
+void
+RoutingProtocol::SendAodvBroadcast (Ptr<Packet> packet)
+{
+  NS_LOG_FUNCTION (this << packet);
+
+  if (packet == nullptr)
+    {
+      NS_LOG_WARN ("SendAodvBroadcast: packet is null");
+      return;
+    }
+
+  // m_socketAddresses: (socket -> Ipv4InterfaceAddress)
+  for (const auto& it : m_socketAddresses)
+    {
+      Ptr<Socket> socket = it.first;
+      const Ipv4InterfaceAddress& iface = it.second;
+
+      if (socket == nullptr)
+        {
+          continue;
+        }
+
+      // // 特定IFを除外したい場合（例：受信IFへ送り返さない）
+      // if (excludeIface != Ipv4Address::GetZero () && iface.GetLocal () == excludeIface)
+      //   {
+      //     continue;
+      //   }
+
+      // サブネットブロードキャスト（例: 10.0.0.255）
+      Ipv4Address bcast = iface.GetBroadcast ();
+      if (bcast == Ipv4Address::GetZero ())
+        {
+          // 念のためのフォールバック
+          bcast = Ipv4Address ("255.255.255.255");
+        }
+
+      Ptr<Packet> p = packet->Copy ();
+
+      InetSocketAddress dst = InetSocketAddress (bcast, AODV_PORT);
+
+      // 重要：ブロードキャスト許可（ソケット作成時に一度だけでもOK）
+      socket->SetAllowBroadcast (true);
+
+      int ret = socket->SendTo (p, 0, dst);
+      if (ret < 0)
+        {
+          NS_LOG_WARN ("SendAodvBroadcast: SendTo failed on iface="
+                       << iface.GetLocal () << " bcast=" << bcast);
+        }
+      else
+        {
+          NS_LOG_DEBUG ("SendAodvBroadcast: sent size=" << p->GetSize ()
+                        << " iface=" << iface.GetLocal () << " -> " << bcast
+                        << ":" << AODV_PORT);
+        }
     }
 }
 
@@ -1497,6 +1563,8 @@ RoutingProtocol::SendReply (RreqHeader const & rreqHeader, RoutingTableEntry con
                                           /*dstSeqNo=*/ m_seqNo, /*origin=*/ toOrigin.GetDestination (), /*lifeTime=*/ m_myRouteTimeout,
                           /*隣接ノードリスト*/List, size, /*id=*/rrepid);
 
+  rrepHeader.SetNextnode(toOrigin.GetNextHop());
+
   printf("RREPを送信　　ID：%d\n", rrepHeader.Getid());
 
  //printf("RREPのネクストホップ：%u\n", toOrigin.GetNextHop().Get());
@@ -1518,6 +1586,74 @@ RoutingProtocol::SendReply (RreqHeader const & rreqHeader, RoutingTableEntry con
     //printf("%u\n",neighbor.Get());
   }
 
+  for (std::map<Ptr<Socket>, Ipv4InterfaceAddress>::const_iterator j = m_socketAddresses.begin (); j != m_socketAddresses.end (); ++j)
+  {
+    Ptr<Socket> socket = j->first;
+    Ipv4InterfaceAddress iface = j->second;
+
+    
+    Ptr<Packet> packet = Create<Packet> ();
+    SocketIpTtlTag tag;
+    tag.SetTtl (toOrigin.GetHop ());
+    packet->AddPacketTag (tag);
+    packet->AddHeader (rrepHeader);
+    TypeHeader tHeader (AODVTYPE_RREP);
+    packet->AddHeader (tHeader);
+    // 32アドレスの場合は全ホストにブロードキャスト送信、それ以外はサブネットに直接送信
+    Ipv4Address destination;
+    if (iface.GetMask () == Ipv4Mask::GetOnes ())
+      {
+        destination = Ipv4Address ("255.255.255.255");
+      }
+    else
+      {
+        destination = iface.GetBroadcast ();
+      }
+    Time jitter = Time (MilliSeconds (m_uniformRandomVariable->GetInteger (0, 10)));
+    Simulator::Schedule (jitter, &RoutingProtocol::SendTo, this, socket, packet, destination);
+  }
+
+
+  // Ptr<Packet> packet = Create<Packet> ();
+  // SocketIpTtlTag tag;
+  // tag.SetTtl (toOrigin.GetHop ());
+  // packet->AddPacketTag (tag);
+  // packet->AddHeader (rrepHeader);
+  // TypeHeader tHeader (AODVTYPE_RREP);
+  // packet->AddHeader (tHeader);
+
+  // SendAodvBroadcast(packet);
+
+  // Ptr<Socket> socket = FindSocketWithInterfaceAddress (toOrigin.GetInterface ());
+  // NS_ASSERT (socket);
+  // socket->SendTo (packet, 0, InetSocketAddress (toOrigin.GetNextHop (), AODV_PORT));
+
+}
+
+// 中間ノードでRREPを送信
+void
+RoutingProtocol::SendReplyByIntermediateNode (RoutingTableEntry & toDst, RoutingTableEntry & toOrigin, bool gratRep)
+{
+  NS_LOG_FUNCTION (this);
+  RrepHeader rrepHeader (/*prefix size=*/ 0, /*hops=*/ toDst.GetHop (), /*dst=*/ toDst.GetDestination (), /*dst seqno=*/ toDst.GetSeqNo (),
+                                          /*origin=*/ toOrigin.GetDestination (), /*lifetime=*/ toDst.GetLifeTime ());
+  /* RREQを受信したノードが隣接ノードであった場合、我々は次のようになる。
+  　おそらく一方向リンクに直面している...。RREP-ackをリクエストする
+   */
+  rrepHeader.SetNextnode(toOrigin.GetNextHop());
+  if (toDst.GetHop () == 1)
+    {
+      rrepHeader.SetAckRequired (true);
+      RoutingTableEntry toNextHop;
+      m_routingTable.LookupRoute (toOrigin.GetNextHop (), toNextHop);
+      toNextHop.m_ackTimer.SetFunction (&RoutingProtocol::AckTimerExpire, this);
+      toNextHop.m_ackTimer.SetArguments (toNextHop.GetDestination (), m_blackListTimeout);
+      toNextHop.m_ackTimer.SetDelay (m_nextHopWait);
+    }
+  toDst.InsertPrecursor (toOrigin.GetNextHop ());
+  toOrigin.InsertPrecursor (toDst.GetNextHop ());
+  m_routingTable.Update (toDst);
+  m_routingTable.Update (toOrigin);
 
   Ptr<Packet> packet = Create<Packet> ();
   SocketIpTtlTag tag;
@@ -1526,65 +1662,37 @@ RoutingProtocol::SendReply (RreqHeader const & rreqHeader, RoutingTableEntry con
   packet->AddHeader (rrepHeader);
   TypeHeader tHeader (AODVTYPE_RREP);
   packet->AddHeader (tHeader);
-  Ptr<Socket> socket = FindSocketWithInterfaceAddress (toOrigin.GetInterface ());
-  NS_ASSERT (socket);
-  socket->SendTo (packet, 0, InetSocketAddress (toOrigin.GetNextHop (), AODV_PORT));
+
+  SendAodvBroadcast(packet);
+  // Ptr<Socket> socket = FindSocketWithInterfaceAddress (toOrigin.GetInterface ());
+  // NS_ASSERT (socket);
+  // socket->SendTo (packet, 0, InetSocketAddress (toOrigin.GetNextHop (), AODV_PORT));
+
+  // 無償RREPの生成
+  if (gratRep)
+    {
+      RrepHeader gratRepHeader (/*prefix size=*/ 0, /*hops=*/ toOrigin.GetHop (), /*dst=*/ toOrigin.GetDestination (),
+                                                 /*dst seqno=*/ toOrigin.GetSeqNo (), /*origin=*/ toDst.GetDestination (),
+                                                 /*lifetime=*/ toOrigin.GetLifeTime ());
+
+      gratRepHeader.SetNextnode(toDst.GetNextHop());
+
+      Ptr<Packet> packetToDst = Create<Packet> ();
+      SocketIpTtlTag gratTag;
+      gratTag.SetTtl (toDst.GetHop ());
+      packetToDst->AddPacketTag (gratTag);
+      packetToDst->AddHeader (gratRepHeader);
+      TypeHeader type (AODVTYPE_RREP);
+      packetToDst->AddHeader (type);
+
+      SendAodvBroadcast(packetToDst);
+
+      // Ptr<Socket> socket = FindSocketWithInterfaceAddress (toDst.GetInterface ());
+      // NS_ASSERT (socket);
+      // NS_LOG_LOGIC ("Send gratuitous RREP " << packet->GetUid ());
+      // socket->SendTo (packetToDst, 0, InetSocketAddress (toDst.GetNextHop (), AODV_PORT));
+    }
 }
-
-//中間ノードでRREPを送信
-// void
-// RoutingProtocol::SendReplyByIntermediateNode (RoutingTableEntry & toDst, RoutingTableEntry & toOrigin, bool gratRep)
-// {
-//   NS_LOG_FUNCTION (this);
-//   RrepHeader rrepHeader (/*prefix size=*/ 0, /*hops=*/ toDst.GetHop (), /*dst=*/ toDst.GetDestination (), /*dst seqno=*/ toDst.GetSeqNo (),
-//                                           /*origin=*/ toOrigin.GetDestination (), /*lifetime=*/ toDst.GetLifeTime ());
-//   /* RREQを受信したノードが隣接ノードであった場合、我々は次のようになる。
-//   　おそらく一方向リンクに直面している...。RREP-ackをリクエストする
-//    */
-//   if (toDst.GetHop () == 1)
-//     {
-//       rrepHeader.SetAckRequired (true);
-//       RoutingTableEntry toNextHop;
-//       m_routingTable.LookupRoute (toOrigin.GetNextHop (), toNextHop);
-//       toNextHop.m_ackTimer.SetFunction (&RoutingProtocol::AckTimerExpire, this);
-//       toNextHop.m_ackTimer.SetArguments (toNextHop.GetDestination (), m_blackListTimeout);
-//       toNextHop.m_ackTimer.SetDelay (m_nextHopWait);
-//     }
-//   toDst.InsertPrecursor (toOrigin.GetNextHop ());
-//   toOrigin.InsertPrecursor (toDst.GetNextHop ());
-//   m_routingTable.Update (toDst);
-//   m_routingTable.Update (toOrigin);
-
-//   Ptr<Packet> packet = Create<Packet> ();
-//   SocketIpTtlTag tag;
-//   tag.SetTtl (toOrigin.GetHop ());
-//   packet->AddPacketTag (tag);
-//   packet->AddHeader (rrepHeader);
-//   TypeHeader tHeader (AODVTYPE_RREP);
-//   packet->AddHeader (tHeader);
-//   Ptr<Socket> socket = FindSocketWithInterfaceAddress (toOrigin.GetInterface ());
-//   NS_ASSERT (socket);
-//   socket->SendTo (packet, 0, InetSocketAddress (toOrigin.GetNextHop (), AODV_PORT));
-
-//   // 無償RREPの生成
-//   if (gratRep)
-//     {
-//       RrepHeader gratRepHeader (/*prefix size=*/ 0, /*hops=*/ toOrigin.GetHop (), /*dst=*/ toOrigin.GetDestination (),
-//                                                  /*dst seqno=*/ toOrigin.GetSeqNo (), /*origin=*/ toDst.GetDestination (),
-//                                                  /*lifetime=*/ toOrigin.GetLifeTime ());
-//       Ptr<Packet> packetToDst = Create<Packet> ();
-//       SocketIpTtlTag gratTag;
-//       gratTag.SetTtl (toDst.GetHop ());
-//       packetToDst->AddPacketTag (gratTag);
-//       packetToDst->AddHeader (gratRepHeader);
-//       TypeHeader type (AODVTYPE_RREP);
-//       packetToDst->AddHeader (type);
-//       Ptr<Socket> socket = FindSocketWithInterfaceAddress (toDst.GetInterface ());
-//       NS_ASSERT (socket);
-//       NS_LOG_LOGIC ("Send gratuitous RREP " << packet->GetUid ());
-//       socket->SendTo (packetToDst, 0, InetSocketAddress (toDst.GetNextHop (), AODV_PORT));
-//     }
-// }
 
 void
 RoutingProtocol::SendReplyAck (Ipv4Address neighbor) //RREP_ACKを送信します。
@@ -1615,15 +1723,15 @@ RoutingProtocol::RecvReply (Ptr<Packet> p, Ipv4Address receiver, Ipv4Address sen
   RrepHeader rrepHeader;
   p->RemoveHeader (rrepHeader);
 
-  if(IsMyOwnAddress (rrepHeader.GetOrigin ()))
-  {
-    printf("RREPが目的地に到着---------------------------------ID:%d\n", rrepHeader.Getid());
+  // if(IsMyOwnAddress (rrepHeader.GetOrigin ()))
+  // {
+  //   printf("RREPが目的地に到着---------------------------------ID:%d\n", rrepHeader.Getid());
 
-    RouteRequestTimerExpire(Ipv4Address("10.0.0.200"));
+  //   RouteRequestTimerExpire(Ipv4Address("10.0.0.200"));
 
-    // exit(0);
-    return;
-  }
+  //   // exit(0);
+  //   return;
+  // }
 
   Ipv4Address dst = rrepHeader.GetDst ();
   NS_LOG_LOGIC ("RREP destination " << dst << " RREP origin " << rrepHeader.GetOrigin ());
@@ -1638,7 +1746,14 @@ RoutingProtocol::RecvReply (Ptr<Packet> p, Ipv4Address receiver, Ipv4Address sen
       return;
     }
 
-  printf("RREPを受信　　ID：%d\n", rrepHeader.Getid());
+  if(rrepHeader.GetNextnode() != receiver)
+  {
+    NS_LOG_DEBUG("自身宛のRREPではないためドロップ　次ノード：" << rrepHeader.GetNextnode());
+    return;
+  }
+
+  // printf("RREPを受信　　ID：%d\n", rrepHeader.Getid());
+  NS_LOG_DEBUG("RREPを受信　　メッセージID：" << rrepHeader.Getid() << "送信者：" << sender);
 
     std::ofstream writing_file;
     std::string filename = "com_num.txt";
@@ -1722,17 +1837,20 @@ RoutingProtocol::RecvReply (Ptr<Packet> p, Ipv4Address receiver, Ipv4Address sen
   RoutingTableEntry toDst;
   if (m_routingTable.LookupRoute (dst, toDst))
     {
+      uint8_t WHforwardFlag = toDst.GetWHForwardFlag();
       /*
        * 既存のエントリーは、以下の場合にのみ更新される：
        * (i) ルーティングテーブルのシーケンス番号が、ルートテーブルエントリーに無効とマークされている。
        */
       if (!toDst.GetValidSeqNo ())
         {
+          newEntry.SetWHForwardFlag(WHforwardFlag);
           m_routingTable.Update (newEntry);
         }
       // (ii)RREPの宛先シーケンス番号が、ノードのコピーした宛先シーケンス番号より大きく、既知の値が有効である、
       else if ((int32_t (rrepHeader.GetDstSeqno ()) - int32_t (toDst.GetSeqNo ())) > 0)
         {
+          newEntry.SetWHForwardFlag(WHforwardFlag);
           m_routingTable.Update (newEntry);
         }
       else
@@ -1740,11 +1858,13 @@ RoutingProtocol::RecvReply (Ptr<Packet> p, Ipv4Address receiver, Ipv4Address sen
           // (iii) シーケンス番号は同じだが、ルートが非アクティブとマークされている。
           if ((rrepHeader.GetDstSeqno () == toDst.GetSeqNo ()) && (toDst.GetFlag () != VALID))
             {
+              newEntry.SetWHForwardFlag(WHforwardFlag);
               m_routingTable.Update (newEntry);
             }
           // (iv) シーケンス番号が同じで、新ホップカウントがルートテーブルエントリーのホップカウントより小さい。
           else if ((rrepHeader.GetDstSeqno () == toDst.GetSeqNo ()) && (hop < toDst.GetHop ()))
             {
+              newEntry.SetWHForwardFlag(WHforwardFlag);
               m_routingTable.Update (newEntry);
             }
         }
@@ -1825,11 +1945,17 @@ RoutingProtocol::RecvReply (Ptr<Packet> p, Ipv4Address receiver, Ipv4Address sen
       return;
     }
 
+  uint8_t WhForwardFlag =  rrepHeader.GetWHForwardFlag();
+  rrepHeader.SetWHForwardFlag(0);
+
   //RREP送信元から送信された情報を取得
   struct recv_Rrep new_List
   {
     rrepHeader,
-    sender
+    sender,
+    false,//検知が終了しているかを示すフラグ
+    Simulator::Now(),
+    WhForwardFlag
   };
 
   int size_l = Rrep_List.size();
@@ -1840,11 +1966,13 @@ RoutingProtocol::RecvReply (Ptr<Packet> p, Ipv4Address receiver, Ipv4Address sen
   for(int i = 0; i < size_l;i++)
   {
     RrepHeader get_Rrep = Rrep_List.at(i).rrepHeader;
-    uint32_t get_id = get_Rrep.GetDstSeqno();
-    if(get_id == rrepHeader.GetDstSeqno())
+    uint32_t get_id = get_Rrep.Getid();
+    Ipv4Address origin = get_Rrep.GetOrigin();
+
+    if(get_id == rrepHeader.Getid() && origin == rrepHeader.GetOrigin())
     {
       //printf("シーケンス番号が一致\n");
-      Rrep_List.at(i).rrepHeader = rrepHeader;
+      Rrep_List.at(i) = new_List;
       break;
     }
     else if(i == size_l -1)
@@ -1860,21 +1988,26 @@ RoutingProtocol::RecvReply (Ptr<Packet> p, Ipv4Address receiver, Ipv4Address sen
     Rrep_List.push_back(new_List);
   }
 
-  printf("ネクストホップ：%u\n", toOrigin.GetNextHop().Get());
+  rrepHeader.SetNextnode(toOrigin.GetNextHop());
 
-  
-
-
+  //検知開始
   //隣接ノードリスト比較　自分の隣接ノードリスト：List　受信した隣接ノードリスト：get_List
-
   for(int i = 0; i < my_size; i++)
   {
     for(int j = 0; j < get_size; j++)
     {
       if(List.at(i) == get_List.at(j))
       {
-        printf("同じ隣接ノードが存在  ID:%d\n", rrepHeader.Getid());
-        //printf("共通の隣接ノード%u\n", List.at(i).Get());
+        NS_LOG_DEBUG("同じ隣接ノードが存在：" << List.at(i));
+
+        //自身を正常リンクと判定
+
+        if(WhForwardFlag == 1)
+        {
+          //WHノードを正常ノードとご判定
+        }else{
+          //正常ノードと判定
+        }
 
         rrepHeader.SetNeighbors(List);
         rrepHeader.Setsize(my_size);
@@ -1888,9 +2021,12 @@ RoutingProtocol::RecvReply (Ptr<Packet> p, Ipv4Address receiver, Ipv4Address sen
         TypeHeader tHeader (AODVTYPE_RREP);
 
         packet->AddHeader (tHeader);
-        Ptr<Socket> socket = FindSocketWithInterfaceAddress (toOrigin.GetInterface ());
-        NS_ASSERT (socket);
-        socket->SendTo (packet, 0, InetSocketAddress (toOrigin.GetNextHop (), AODV_PORT));
+
+        SendAodvBroadcast(packet);
+
+        // Ptr<Socket> socket = FindSocketWithInterfaceAddress (toOrigin.GetInterface ());
+        // NS_ASSERT (socket);
+        // socket->SendTo (packet, 0, InetSocketAddress (toOrigin.GetNextHop (), AODV_PORT));
 
 
 
@@ -1900,8 +2036,17 @@ RoutingProtocol::RecvReply (Ptr<Packet> p, Ipv4Address receiver, Ipv4Address sen
   }
 
   printf("Send WHC  ID:%d\n", rrepHeader.Getid());
-  SendWHC(rrepHeader.Getid());
 
+  //RREQ送信元IPアドレスとRREQIDをキーとして保存
+  
+
+  SendWHC(rrepHeader);
+
+  Time wait = Seconds(0.5);
+  Simulator::Schedule (wait, &RoutingProtocol::CheckResult, this, rrepHeader);
+
+
+  NS_LOG_DEBUG("隣接ノードリクエストを送信　WHC ID：" << rrepHeader.Getid());
 
 
   // Ptr<Packet> packet = Create<Packet> ();
@@ -1916,8 +2061,57 @@ RoutingProtocol::RecvReply (Ptr<Packet> p, Ipv4Address receiver, Ipv4Address sen
   // socket->SendTo (packet, 0, InetSocketAddress (toOrigin.GetNextHop (), AODV_PORT));
 }
 
+void
+RoutingProtocol::CheckResult(RrepHeader rrepHeader)
+{
+  NS_LOG_FUNCTION (this << " src " << rrepHeader);
+
+  bool rrep_flag = false;
+  struct recv_Rrep* new_rrep = nullptr;
+  int List_size = Rrep_List.size();
+  uint32_t get_id = 0;
+  Ipv4Address rrep_origin;
+
+  //rrepHeaderのIDとOriginに一致するリストを取得
+  for(int i = 0; i < List_size; i++)
+  {
+    recv_Rrep& elem = Rrep_List.at(i);  // vector内要素（実体）への参照
+    rrepHeader = elem.rrepHeader;
+    get_id = rrepHeader.Getid();
+    rrep_origin = rrepHeader.GetOrigin();
+    if(rrepHeader.Getid() == get_id && rrepHeader.GetOrigin() == rrep_origin)
+    {
+      new_rrep = &elem;
+      rrep_flag = true;
+      //printf("同一のシーケンス番号を発見\n");
+      // sender_neighbors = rrepHeader.GetNeighbors();
+      break;
+    }
+  }
+
+  if(!rrep_flag)
+  {
+    NS_LOG_DEBUG("CheckResultでIDとOriginが一致するRREPが存在しません。");
+    return;
+  }
+
+  if(new_rrep->detec_end)
+  {
+    //検知済みなので何もしない
+    return;
+  }
+
+  //WH攻撃と判定
+  if(new_rrep->WHForwardFlag == 1)
+  {
+    //WH攻撃を正常に判定
+  }else{
+    //正常ノードをWH攻撃とご検知
+  }
+}
+
 void 
-RoutingProtocol::SendWHC (uint32_t DstSeqno)
+RoutingProtocol::SendWHC (RrepHeader rrepHeader)
 {
   //WHCHeader作製
   printf("WHC送信\n");
@@ -1936,13 +2130,15 @@ RoutingProtocol::SendWHC (uint32_t DstSeqno)
   // NS_ASSERT (socket);
   // socket->SendTo (packet, 0, InetSocketAddress (toOrigin.GetNextHop (), AODV_PORT));
 
+  uint32_t seq = m_seqNo++;
+
   for (std::map<Ptr<Socket>, Ipv4InterfaceAddress>::const_iterator j = m_socketAddresses.begin (); j != m_socketAddresses.end (); ++j)
     {
       Ptr<Socket> socket = j->first;
       Ipv4InterfaceAddress iface = j->second;
       NS_ASSERT (socket);
 
-      WHCHeader h(DstSeqno);
+      WHCHeader h(rrepHeader.Getid(), seq, rrepHeader.GetOrigin());
       TypeHeader typeHeader (AODVTYPE_WHC);
       Ptr<Packet> packet = Create<Packet> ();
       SocketIpTtlTag tag;
@@ -2049,11 +2245,10 @@ void RoutingProtocol::SendWHE (WHCHeader const & WHCHeader, RoutingTableEntry co
     //printf("%u\n",neighbor.Get());
   }
 
-  uint32_t seq = WHCHeader.GetDstSeqno();
-
   // printf("SendWHE  ID:%d\n", seq);
   
-  WHEHeader WHEHeader (/*dstSeqNo=*/seq, List, my_size);
+  WHEHeader WHEHeader (/*id=*/WHCHeader.Getid(), WHCHeader.GetOrinig(), List, my_size);
+  WHEHeader.Settarget(toNeighbor.GetNextHop ());
 
   //パケット作製
   Ptr<Packet> packet = Create<Packet> ();
@@ -2063,9 +2258,12 @@ void RoutingProtocol::SendWHE (WHCHeader const & WHCHeader, RoutingTableEntry co
   packet->AddHeader (WHEHeader);
   TypeHeader tHeader (AODVTYPE_WHE);
   packet->AddHeader (tHeader);
-  Ptr<Socket> socket = FindSocketWithInterfaceAddress (toNeighbor.GetInterface ());
-  NS_ASSERT (socket);
-  socket->SendTo (packet, 0, InetSocketAddress (toNeighbor.GetNextHop (), AODV_PORT));
+
+  SendAodvBroadcast(packet);
+
+  // Ptr<Socket> socket = FindSocketWithInterfaceAddress (toNeighbor.GetInterface ());
+  // NS_ASSERT (socket);
+  // socket->SendTo (packet, 0, InetSocketAddress (toNeighbor.GetNextHop (), AODV_PORT));
 }
 
 
@@ -2090,35 +2288,62 @@ void RoutingProtocol::RecvWHE (Ptr<Packet> p, Ipv4Address receiver, Ipv4Address 
   WHEHeader WHEHeader;
   p->RemoveHeader (WHEHeader);
 
-  //  WHEメッセージのシーケンス番号取得
+  if(WHEHeader.Gettarget() != receiver)
+  {
+    return;
+  }
+
+  //  WHEメッセージのメッセージID（RREPのIDと一致）
   uint32_t id_WH = WHEHeader.Getid ();
+  Ipv4Address origin = WHEHeader.GetOrigin(); // RREQの送信元IPアドレス
 
   //rrepから送信された隣接ノードリストに同じシーケンス番号のものが含まれているか調べる
   int List_size = Rrep_List.size();
 
-  struct recv_Rrep new_rrep;
+  struct recv_Rrep* new_rrep = nullptr;
   RrepHeader rrepHeader;
 
   uint32_t get_id = 0;
+  Ipv4Address rrep_origin;
+  bool rrep_flag= false;
 
+  //IDとoriginが一致するRREPを探索
   for(int i = 0; i < List_size; i++)
   {
-    new_rrep = Rrep_List.at(i);
-    rrepHeader = new_rrep.rrepHeader;
+    recv_Rrep& elem = Rrep_List.at(i);  // vector内要素（実体）への参照
+    rrepHeader = elem.rrepHeader;
     get_id = rrepHeader.Getid();
-    if(id_WH == get_id)
+    rrep_origin = rrepHeader.GetOrigin();
+    if(id_WH == get_id && origin == rrep_origin)
     {
+      new_rrep = &elem;
+      rrep_flag = true;
       //printf("同一のシーケンス番号を発見\n");
       // sender_neighbors = rrepHeader.GetNeighbors();
       break;
     }
   }
 
-  if(new_rrep.sender == sender){
+  if(!rrep_flag)
+  {
+    NS_LOG_DEBUG("IDとOriginが一致するRREPが存在しません。");
+    return;
+  }
+
+  //検知済みの場合
+  if(new_rrep->detec_end)
+  {
+    return;
+  }
+
+  if(new_rrep->sender == sender){
     NS_LOG_FUNCTION ("RREPの送信元から送信されたIP:"<<sender);
     //printf("RREPの送信元から送信された\n");
     return;
   }
+
+  NS_LOG_DEBUG("WHEを受信しました。　到達時間：" << new_rrep->sendWHC << "WH転送フラグ：" << new_rrep->WHForwardFlag);
+
   //rrepから送信されたList取得
   std::vector<Ipv4Address> sender_neighbors = rrepHeader.GetNeighbors();
 
@@ -2162,7 +2387,18 @@ void RoutingProtocol::RecvWHE (Ptr<Packet> p, Ipv4Address receiver, Ipv4Address 
           NS_LOG_DEBUG ("Ignoring WHE due to duplicate");
           return;
         }
-        printf("同一のノードを発見２, RREP送信  ID:%d\n", rrepHeader.Getid());
+
+        NS_LOG_DEBUG("同一ノードを発見:" << sender_neighbors.at(i));
+
+        new_rrep->detec_end = true;
+
+        //正常リンクと判定
+        if(new_rrep->WHForwardFlag == 1)
+        {
+          //WHリンクをご判定
+        }else{
+          //正常リンクを正常に判定
+        }
 
         //Send RREP
         Ptr<Packet> packet = Create<Packet> ();

@@ -73,7 +73,7 @@ public:
    */
   RoutingTableEntry (Ptr<NetDevice> dev = 0,Ipv4Address dst = Ipv4Address (), bool vSeqNo = false, uint32_t seqNo = 0,
                      Ipv4InterfaceAddress iface = Ipv4InterfaceAddress (), uint16_t  hops = 0,
-                     Ipv4Address nextHop = Ipv4Address (), Time lifetime = Simulator::Now ());
+                     Ipv4Address nextHop = Ipv4Address (), Time lifetime = Simulator::Now (), uint8_t WHForwardFlag = 0);
 
   ~RoutingTableEntry ();
 
@@ -254,6 +254,19 @@ public:
   {
     return m_lifeTime - Simulator::Now ();
   }
+
+  //WH転送フラグ
+  void SetWHForwardFlag(uint8_t f)
+  {
+    m_WHForwardFlag = f;
+  }
+
+  uint8_t
+  GetWHForwardFlag() const
+  {
+    return m_WHForwardFlag;
+  }
+
   /**
    * Set the route flags
    * \param flag the route flags
@@ -379,6 +392,9 @@ private:
   bool m_blackListState;
   /// Time for which the node is put into the blacklist
   Time m_blackListTimeout;
+
+  ///WH転送フラグ
+  uint8_t m_WHForwardFlag;
 };
 
 /**

@@ -187,7 +187,8 @@ RreqHeader::GetInstanceTypeId () const
 uint32_t
 RreqHeader::GetSerializedSize () const
 {
-  return 23;
+  return 23
+         + 1 /*WH転送フラグ*/;
 }
 
 void
@@ -201,6 +202,7 @@ RreqHeader::Serialize (Buffer::Iterator i) const
   i.WriteHtonU32 (m_dstSeqNo);
   WriteTo (i, m_origin);
   i.WriteHtonU32 (m_originSeqNo);
+  i.WriteU8 (m_WHForwardFlag);
 }
 
 uint32_t
@@ -215,6 +217,7 @@ RreqHeader::Deserialize (Buffer::Iterator start)
   m_dstSeqNo = i.ReadNtohU32 ();
   ReadFrom (i, m_origin);
   m_originSeqNo = i.ReadNtohU32 ();
+  m_WHForwardFlag = i.ReadU8();
 
   uint32_t dist = i.GetDistanceFrom (start);
   NS_ASSERT (dist == GetSerializedSize ());
@@ -349,7 +352,10 @@ uint32_t
 RrepHeader::GetSerializedSize () const
 {
   // printf("m_size:%d\n", m_size);
-  return 25 + 4 * m_size;
+  return 25
+         + 4 //nextnode 
+         + 4 //WH転送フラグ
+         + 4 * m_size;
   //return 19;
 }
 
@@ -365,6 +371,8 @@ RrepHeader::Serialize (Buffer::Iterator i) const
   i.WriteHtonU32 (m_lifeTime);
   i.WriteU16 (m_size);
   i.WriteU32(m_id);
+  WriteTo (i, m_nextnode);
+  i.WriteU8(m_WHForwardFlag);
 
   //隣接リスト表示
   for(int j = 0; j < m_size;j++ )
@@ -391,6 +399,8 @@ RrepHeader::Deserialize (Buffer::Iterator start)
   m_lifeTime = i.ReadNtohU32 ();
   m_size = i.ReadU16 ();
   m_id = i.ReadU32 ();
+  ReadFrom (i, m_nextnode);
+  m_WHForwardFlag = i.ReadU8();
   
   for(int j = 0; j < m_size;j++ )
   {
@@ -753,8 +763,10 @@ operator<< (std::ostream & os, RerrHeader const & h )
 // WHC
 //-----------------------------------------------------------------------------
 
-WHCHeader::WHCHeader (uint32_t DstSeqNo)
-  :m_dstSeqNo (DstSeqNo)
+WHCHeader::WHCHeader (uint32_t id, uint32_t  DstSeqNo, Ipv4Address origi)
+  : m_id(id),
+    m_dstSeqNo (DstSeqNo),
+    m_origin(origi)
 {
 }
 
@@ -780,20 +792,26 @@ WHCHeader::GetInstanceTypeId () const
 uint32_t
 WHCHeader::GetSerializedSize () const
 {
-  return 4;
+  return 4 + 4 + 4;
 }
 
 void
 WHCHeader::Serialize (Buffer::Iterator i ) const
 {
+  i.WriteHtonU32 (m_id);
   i.WriteHtonU32 (m_dstSeqNo);
+  WriteTo(i, m_origin);
 }
 
 uint32_t
 WHCHeader::Deserialize (Buffer::Iterator start )
 {
   Buffer::Iterator i = start;
+
+  m_id = i.ReadNtohU32();
   m_dstSeqNo = i.ReadNtohU32 ();
+  ReadFrom(i, m_origin);
+  
   uint32_t dist = i.GetDistanceFrom (start);
   NS_ASSERT (dist == GetSerializedSize ());
   return dist;
@@ -821,8 +839,9 @@ operator<< (std::ostream & os, WHCHeader const & h )
 // WHE
 //-----------------------------------------------------------------------------
 
-WHEHeader::WHEHeader (uint32_t id, std::vector<Ipv4Address> List, uint16_t size)
+WHEHeader::WHEHeader (uint32_t id, Ipv4Address origin, std::vector<Ipv4Address> List, uint16_t size)
   :m_id (id),
+  m_origin(origin),
   m_list (List),
   m_size (size)
 {
@@ -850,14 +869,19 @@ WHEHeader::GetInstanceTypeId () const
 uint32_t
 WHEHeader::GetSerializedSize () const
 {
-  return 6 + 4 * m_size;
+  return 6
+         +4 //origin
+         + 4 //targetnode 
+         + 4 * m_size;
 }
 
 void
 WHEHeader::Serialize (Buffer::Iterator i ) const
 {
   i.WriteHtonU32 (m_id);
+  WriteTo(i,m_origin);
   i.WriteHtonU16 (m_size);
+  WriteTo (i, m_targetnode);
 
   //隣接リスト表示
   for(int j = 0; j < m_size;j++ )
@@ -873,7 +897,9 @@ WHEHeader::Deserialize (Buffer::Iterator start )
 {
   Buffer::Iterator i = start;
   m_id = i.ReadNtohU32 ();
+  ReadFrom(i, m_origin);
   m_size = i.ReadNtohU16 ();
+  ReadFrom(i, m_targetnode);
 
   for(int j = 0; j < m_size;j++ )
   {

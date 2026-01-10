@@ -43,7 +43,7 @@ namespace aodv {
  */
 
 RoutingTableEntry::RoutingTableEntry (Ptr<NetDevice> dev, Ipv4Address dst, bool vSeqNo, uint32_t seqNo,
-                                      Ipv4InterfaceAddress iface, uint16_t hops, Ipv4Address nextHop, Time lifetime)
+                                      Ipv4InterfaceAddress iface, uint16_t hops, Ipv4Address nextHop, Time lifetime, uint8_t WHForwardFlag)
   : m_ackTimer (Timer::CANCEL_ON_DESTROY),
     m_validSeqNo (vSeqNo),
     m_seqNo (seqNo),
@@ -53,7 +53,8 @@ RoutingTableEntry::RoutingTableEntry (Ptr<NetDevice> dev, Ipv4Address dst, bool 
     m_flag (VALID),
     m_reqCount (0),
     m_blackListState (false),
-    m_blackListTimeout (Simulator::Now ())
+    m_blackListTimeout (Simulator::Now ()),
+    m_WHForwardFlag(WHForwardFlag)
 {
   m_ipv4Route = Create<Ipv4Route> ();
   m_ipv4Route->SetDestination (dst);

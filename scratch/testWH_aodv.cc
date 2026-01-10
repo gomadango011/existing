@@ -36,6 +36,7 @@
 #include "ns3/wifi-module.h"
 #include "ns3/netanim-module.h"
 #include "myapp.h"
+#include "ns3/out-band-wh-module.h"
 
 using namespace ns3;
 

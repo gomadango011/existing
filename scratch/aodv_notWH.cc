@@ -36,15 +36,18 @@
 #include "ns3/wifi-module.h"
 #include "ns3/netanim-module.h"
 #include "myapp.h"
-#include "/home/goma/ns-3.30/build/ns3/trace-helper.h"
+#include "ns3/trace-helper.h"
 #include <random>
 #include "ns3/udp-echo-helper.h"
 #include <iostream>
 #include <fstream>
-#include <filesystem>
-#include <boost/filesystem.hpp>
+// #include <filesystem>
+// #include <boost/filesystem.hpp>
+#include <sys/stat.h>
+#include <cstdio>      // ★remove() を使うなら入れておくと確実
 
-namespace fs = std::system;
+// namespace fs = std::filesystem;
+// namespace fs = boost::filesystem;
 using namespace ns3;
 
 /**
@@ -139,58 +142,82 @@ ReceivePacket(Ptr<const Packet> p, const Address & addr)
 	std::cout << Simulator::Now ().GetSeconds () << "\t" << p->GetSize() <<"\n";
 }
 
-std::string
-NewFileName(const std::string &f)
+static bool FileExists(const std::string& path)
 {
-  if(!fs::exists(f))
+  struct stat st;
+  return (stat(path.c_str(), &st) == 0);
+}
+
+std::string
+NewFileName(const std::string& f)
+{
+  if (!FileExists(f))
   {
     return f;
   }
 
-  std::string baseName = f.substr(0, f.find_last_of('.'));
-  std::string extension = f.substr(f.find_last_of('.'));
+  // 拡張子がないファイル名にも対応
+  const std::string::size_type dot = f.find_last_of('.');
+  std::string baseName;
+  std::string extension;
+
+  if (dot == std::string::npos || dot == 0)
+  {
+    baseName = f;
+    extension = "";
+  }
+  else
+  {
+    baseName = f.substr(0, dot);
+    extension = f.substr(dot);
+  }
+
   int counter = 0;
   std::string newfile;
 
-  do{
+  do
+  {
     newfile = baseName + "_" + std::to_string(counter) + extension;
-    counter ++;
-  } while (fs::exists(newfile));
+    ++counter;
+  } while (FileExists(newfile));
 
-  return newfile;  
-  
+  return newfile;
 }
 
+// ===== main用のグローバル =====
 std::string filename;
-std::string p_log = "/home/goma/workspace_sub/ns-3-allinone/ns-3.30/p-log/packet-log.txt";
+
+
+std::string p_log = "p-log/packet-log.txt";
 
 int main (int argc, char **argv)
 {
-  //file 削除と作製
-  remove("sample.txt");
+  // file 削除と作製（必要なら）
+  std::remove("sample.txt");
   std::ofstream MyFile("sample.txt");
 
-  remove("WH_count.txt");
+  std::remove("WH_count.txt");
   std::ofstream MyFile2("WH_count.txt");
 
-   //file 削除と作製
-  remove("com_num.txt");
+  std::remove("com_num.txt");
   std::ofstream MyFile3("com_num.txt");
 
-  //パケットログ用のファイルを作成
+  // パケットログ用のファイル名を決定
   filename = NewFileName(p_log);
 
   AodvExample test;
-  if (!test.Configure (argc, argv))
-    NS_FATAL_ERROR ("Configuration failed. Aborted.");
+  if (!test.Configure(argc, argv))
+  {
+    NS_FATAL_ERROR("Configuration failed. Aborted.");
+  }
 
-  test.Run ();
-  test.Report (std::cout);
+  test.Run();
+  test.Report(std::cout);
   return 0;
 }
 
 //-----------------------------------------------------------------------------
-AodvExample::AodvExample () :
+AodvExample::AodvExample() :
   size (200),
   size_a (5),
   step (50),
@@ -382,6 +409,12 @@ AodvExample::CreateDevices ()
   wifiPhy = YansWifiPhyHelper::Default ();
   YansWifiChannelHelper wifiChannel = YansWifiChannelHelper::Default ();
   wifiPhy.SetChannel (wifiChannel.Create ());
+
+  //送信電力と受信電力を設定
+  //送信電力と受信電力を設定
+  wifiPhy.Set("TxPowerStart", DoubleValue(25.0)); // 送信電力 20 dBm
+  wifiPhy.Set("TxPowerEnd", DoubleValue(25.0));
+
   WifiHelper wifi;
   wifi.SetRemoteStationManager ("ns3::ConstantRateWifiManager", "DataMode", StringValue ("OfdmRate6Mbps"), "RtsCtsThreshold", UintegerValue (0));
   devices = wifi.Install (wifiPhy, wifiMac, nodes); 

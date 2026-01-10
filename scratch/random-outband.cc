@@ -36,11 +36,7 @@
 #include "ns3/wifi-module.h"
 #include "ns3/netanim-module.h"
 #include "myapp.h"
-#include "ns3/trace-helper.h"
-#include <random>
-#include "ns3/udp-echo-helper.h"
-#include <iostream>
-#include <fstream>
+#include "ns3/out-band-wh-module.h"
 
 using namespace ns3;
 
@@ -96,12 +92,6 @@ private:
   /// Print routes if true
   bool printRoutes;
 
-  //追加部分
-  AodvHelper aodv;
-  PointToPointHelper point;
-
-  YansWifiPhyHelper wifiPhy;
-
   // network
   /// nodes used in the example
   NodeContainer nodes;
@@ -115,6 +105,8 @@ private:
   NetDeviceContainer devices, mal_devices;
   /// interfaces used in the example
   Ipv4InterfaceContainer interfaces;
+
+  Ipv4InterfaceContainer mal_ifcont;
 
 private:
   /// Create the nodes
@@ -135,17 +127,6 @@ ReceivePacket(Ptr<const Packet> p, const Address & addr)
 
 int main (int argc, char **argv)
 {
-  //file 削除と作製
-  remove("sample.txt");
-  std::ofstream MyFile("sample.txt");
-
-  remove("WH_count.txt");
-  std::ofstream MyFile2("WH_count.txt");
-
-     //file 削除と作製
-  remove("com_num.txt");
-  std::ofstream MyFile3("com_num.txt");
-
   AodvExample test;
   if (!test.Configure (argc, argv))
     NS_FATAL_ERROR ("Configuration failed. Aborted.");
@@ -157,10 +138,10 @@ int main (int argc, char **argv)
 
 //-----------------------------------------------------------------------------
 AodvExample::AodvExample () :
-  size (200),
+  size (7),
   size_a (5),
   step (50),
-  totalTime (30),
+  totalTime (100),
   pcap (true),
   printRoutes (true)
 {
@@ -170,13 +151,13 @@ bool
 AodvExample::Configure (int argc, char **argv)
 {
   // Enable AODV logs by default. Comment this if too noisy
-  // LogComponentEnable("AodvRoutingProtocol", LOG_LEVEL_ALL);
-  // LogComponentEnable ("UdpEchoClientApplication", LOG_LEVEL_ALL);
-  // LogComponentEnable ("UdpEchoServerApplication", LOG_LEVEL_ALL);
+  //LogComponentEnable("AodvRoutingProtocol", LOG_LEVEL_ALL);
+  //LogComponentEnable ("UdpEchoClientApplication", LOG_LEVEL_ALL);
+  //LogComponentEnable ("UdpEchoServerApplication", LOG_LEVEL_ALL);
 
-  std::random_device randomseed;
-  int rand = randomseed();
-  SeedManager::SetSeed (rand);
+
+
+  SeedManager::SetSeed (12345);
   CommandLine cmd;
 
   cmd.AddValue ("pcap", "Write PCAP traces.", pcap);
@@ -203,63 +184,11 @@ AodvExample::Run ()
   Simulator::Stop (Seconds (totalTime));
 
   //追加部分
-  //FlowMonitorHelper flowMonitor;
-  // auto monitor = flowMonitor.InstallAll();
-
-  //追加部分
-  AsciiTraceHelper ascii;
-  // aodv.EnablePcapAll ("test_aodv");
-  point.EnableAsciiAll (ascii.CreateFileStream("test_point.tr"));
-
-   //traceファイルの設定
-    // AsciiTraceHelper ascii;
-    // Ptr<OutputStreamWrapper> stream;  // stream:=(ファイルストリーム).
-
-    // // 初回のときにストリーム作成．
-    // if(!stream) {
-    //     std::string filename = "packet1.tr";
-    //     stream = ascii.CreateFileStream(filename,std::ios::app);
-    // }
-
-    // //trに書き込む
-    // *stream->GetStream()<< Node_ID<<" "<<sourceid << " "<<sourcetime<<" "<<sourcepos.x <<" "<<sourcepos.y<<" "<<beforehopid <<" "<<beforehoptime << " " <<beforehoppos.x <<" " << beforehoppos.y <<" " <<senderid << " "<<sendertime<<" " << senderpos.x << " "<<senderpos.y << " "<< msg <<std::endl;     // パケットの中身．
-
-    // Packet::EnableChecking();
-    // Packet::EnablePrinting();
-
-  //  FlowMonitorHelper flowMonitor;
-  //   auto monitor = flowMonitor.InstallAll();
-
-  //   wifiPhy.SetPcapDataLinkType(WifiPhyHelper::DLT_IEEE802_11_RADIO);
-  //   wifiPhy.EnablePcapAll(/*m_prefix + */"-packet");
-  //   wifiPhy.EnableAsciiAll(/*m_prefix +*/  "-packet");
-
-    // AsciiTraceHelper asc;
-    // Ipv4RoutingHelper::PrintRoutingTableAllEvery(Seconds(1.0), asc.CreateFileStream(/*m_prefix + */"-rtable.tr"));
-
-  
-
+  FlowMonitorHelper flowMonitor;
+  auto monitor = flowMonitor.InstallAll();
 
   Simulator::Run ();
   Simulator::Destroy ();
-
-
-
-  // monitor->CheckForLostPackets ();
-  // Ptr<Ipv4FlowClassifier> classifier = DynamicCast<Ipv4FlowClassifier> (flowmon.GetClassifier ());
-  // FlowMonitor::FlowStatsContainer stats = monitor->GetFlowStats ();
-  // for (std::map<FlowId, FlowMonitor::FlowStats>::const_iterator i = stats.begin (); i != stats.end (); ++i)
-  //   {
-  //     Ipv4FlowClassifier::FiveTuple t = classifier->FindFlow (i->first);
-
-  //     std::cout << "Flow " << i->first  << " (" << t.sourceAddress << " -> " << t.destinationAddress << ")\n";
-  //     std::cout << "  Tx Packets: " << i->second.txPackets << "\n";
-  //     std::cout << "  Tx Bytes:   " << i->second.txBytes << "\n";
-  //     std::cout << "  TxOffered:  " << i->second.txBytes * 8.0 / 9.0 / 1000 / 1000  << " Mbps\n";
-  //     std::cout << "  Rx Packets: " << i->second.rxPackets << "\n";
-  //     std::cout << "  Rx Bytes:   " << i->second.rxBytes << "\n";
-  //     std::cout << "  Throughput: " << i->second.rxBytes * 8.0 / 9.0 / 1000 / 1000  << " Mbps\n";
-  //   }
 }
 
 void
@@ -281,56 +210,70 @@ AodvExample::CreateNodes ()
       os << "node-" << i;
       Names::Add (os.str (), nodes.Get (i));
     }
-
+  // Create static grid
   // MobilityHelper mobility;
-  // mobility.SetPositionAllocator ("ns3::UniformDiscPositionAllocator",
-  //                                "rho", DoubleValue (150),
-  //                                "X", DoubleValue (150),
-  //                                "Y", DoubleValue (0)
-  //                                ); 
+  // mobility.SetPositionAllocator ("ns3::GridPositionAllocator",
+  //                                "MinX", DoubleValue (0.0),
+  //                                "MinY", DoubleValue (0.0),
+  //                                "DeltaX", DoubleValue (step),
+  //                                "DeltaY", DoubleValue (10000),
+  //                                "GridWidth", UintegerValue (size),
+  //                                "LayoutType", StringValue ("RowFirst"));
+  // mobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
+  // mobility.Install (nodes);
 
+  //ノードをランダムに配置
   MobilityHelper mobility;
   mobility.SetPositionAllocator ("ns3::RandomRectanglePositionAllocator",
-                                  "X", StringValue("ns3::UniformRandomVariable[Min=0|Max=300]"),
-                                  "Y", StringValue("ns3::UniformRandomVariable[Min=-100|Max=100]")
-                                 ); 
+                                "X", StringValue("ns3::UniformRandomVariable[Min=0|Max=300]"),
+                                "Y", StringValue("ns3::UniformRandomVariable[Min=-100|Max=100]")
+                                );
   
-  mobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
-  mobility.Install (nodes);
+  mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel");
+
+  mobility.Install(nodes);
+
+  for (uint32_t i = 0; i < nodes.GetN(); i++)
+    {
+        //攻撃者ノード以外にAODVをインストール
+        if (i != 1 && i != 2)
+        {
+            not_malicious.Add(nodes.Get(i));
+        }
+    }
   
-  not_malicious.Add(nodes.Get(0));        //src
-  not_malicious.Add(nodes.Get(size-1));  //dst
-  // not_malicious.Add(nodes.Get(3));
-  // not_malicious.Add(nodes.Get(4));
-  // not_malicious.Add(nodes.Get(5));
-  malicious.Add(nodes.Get(1)); //WH1
-  malicious.Add(nodes.Get(2));//WH2
+  malicious.Add(nodes.Get(1));
+  malicious.Add(nodes.Get(2));
 
 
   // MobilityHelper mobility;
   // Ptr<ListPositionAllocator> positionAlloc = CreateObject <ListPositionAllocator>();
-  // positionAlloc ->Add(Vector(20, 0,0)); // node0
-  // positionAlloc ->Add(Vector(50, 10, 0)); // node1 WH
-  // positionAlloc ->Add(Vector(150, 10, 0)); // node2 WH
-  // positionAlloc ->Add(Vector(50, -10, 0)); // node3
-  // positionAlloc ->Add(Vector(100, -10, 0)); // node4
-  // positionAlloc ->Add(Vector(150, -10, 0)); // node5
-  // positionAlloc ->Add(Vector(200, 0, 0)); // node6
-  // //positionAlloc ->Add(Vector(250, -10, 0)); // node7
-  // // positionAlloc ->Add(Vector(300, 0, 0)); // node8
+  // positionAlloc ->Add(Vector(0, 0, 0)); // node0
+  // positionAlloc ->Add(Vector(40, -10, 0)); // node1
+  // positionAlloc ->Add(Vector(80, -10, 0)); // node2
+  // positionAlloc ->Add(Vector(40, -10, 0)); // node3
+  // positionAlloc ->Add(Vector(80, -10, 0)); // node4
+  // positionAlloc ->Add(Vector(120, 0, 0)); // node5
+  // // positionAlloc ->Add(Vector(20, -10, 0)); // node6
+  // // positionAlloc ->Add(Vector(60, -10, 0)); // node7
+  // // positionAlloc ->Add(Vector(100, -10, 0)); // node8
+  // // positionAlloc ->Add(Vector(120, 0, 0)); //dst 9
+  // // positionAlloc ->Add(Vector(200, 0, 0)); // node2
+  // // positionAlloc ->Add(Vector(25, 25, 0)); // node2
+  // // positionAlloc ->Add(Vector(75, 25, 0)); // node2
+  // mobility.SetPositionAllocator(positionAlloc);
   // mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel");
   // mobility.Install(nodes);
 
-   AnimationInterface anim ("wormhole.xml"); // Mandatory
-  AnimationInterface::SetConstantPosition (nodes.Get (0), -20, 0);
-  AnimationInterface::SetConstantPosition (nodes.Get (1), 50,20);//WH1
-  AnimationInterface::SetConstantPosition (nodes.Get (2), 250, 20);//WH2
-  // AnimationInterface::SetConstantPosition (nodes.Get (3), 50, -10);
-  // AnimationInterface::SetConstantPosition (nodes.Get (4), 100, -10);
-  // AnimationInterface::SetConstantPosition (nodes.Get (5), 150, -10);
-  AnimationInterface::SetConstantPosition (nodes.Get (size-1), 320, 0);
-  // AnimationInterface::SetConstantPosition (nodes.Get (7), 250, -10);
-  // AnimationInterface::SetConstantPosition (nodes.Get (8), 270, 0);
+
+     AnimationInterface anim ("wormhole.xml"); // Mandatory
+  AnimationInterface::SetConstantPosition (nodes.Get (0), 0, 0);
+  AnimationInterface::SetConstantPosition (nodes.Get (1), 100, 0);//WH1
+  AnimationInterface::SetConstantPosition (nodes.Get (2), 200, 0);//WH2
+  AnimationInterface::SetConstantPosition (nodes.Get (3), 250, 0);
+  AnimationInterface::SetConstantPosition (nodes.Get (4), 50, 0);
+  AnimationInterface::SetConstantPosition (nodes.Get (5), 275, 20);
+  AnimationInterface::SetConstantPosition (nodes.Get (size - 1), 300, 0);
   
   anim.EnablePacketMetadata(true);
 
@@ -341,7 +284,7 @@ AodvExample::CreateDevices ()
 {
   WifiMacHelper wifiMac;
   wifiMac.SetType ("ns3::AdhocWifiMac");
-  wifiPhy = YansWifiPhyHelper::Default ();
+  YansWifiPhyHelper wifiPhy = YansWifiPhyHelper::Default ();
   YansWifiChannelHelper wifiChannel = YansWifiChannelHelper::Default ();
   wifiPhy.SetChannel (wifiChannel.Create ());
   WifiHelper wifi;
@@ -365,20 +308,23 @@ AodvExample::CreateDevices ()
 void
 AodvExample::InstallInternetStack ()
 {
+  AodvHelper aodv;
+  PointToPointHelper point;
 
   // you can configure AODV attributes here using aodv.Set(name, value)
   InternetStackHelper stack;
   stack.SetRoutingHelper (aodv); // has effect on the next Install ()
-  stack.Install (nodes);
+  stack.Install (not_malicious);
 
   InternetStackHelper stack2;
+  stack2.Install(malicious);
   //IDstack2.Install (malicious);
   Ipv4AddressHelper address;
   address.SetBase ("10.0.0.0", "255.0.0.0","0.0.0.1");
   interfaces = address.Assign (devices);
 
   address.SetBase ("10.1.2.0", "255.255.255.0", "0.0.0.1");
-  Ipv4InterfaceContainer mal_ifcont = address.Assign (mal_devices);
+  mal_ifcont = address.Assign (mal_devices);
 
   if (printRoutes)
     {
@@ -390,13 +336,6 @@ AodvExample::InstallInternetStack ()
 void
 AodvExample::InstallApplications ()
 {
-  // UdpEchohelper udpecho (interfaces.GetAddress (size - 1));
-  // udpecho.SetAttribute ("Verbode", BooleanValue (true));
-  
-  // ApplicationContainer u = udpecho.Install (nodes.Get (0));
-  // p.Start (Seconds (0));
-  // p.Stop (Seconds (totalTime) - Seconds (0.001));
-
   V4PingHelper ping (interfaces.GetAddress (size - 1));
   ping.SetAttribute ("Verbose", BooleanValue (true));
 
@@ -404,10 +343,31 @@ AodvExample::InstallApplications ()
   p.Start (Seconds (0));
   p.Stop (Seconds (totalTime) - Seconds (0.001));
 
-  // move node away
-  Ptr<Node> node = nodes.Get (size/2);
-  Ptr<MobilityModel> mob = node->GetObject<MobilityModel> ();
-  Simulator::Schedule (Seconds (totalTime/3), &MobilityModel::SetPosition, mob, Vector (1e5, 1e5, 1e5));
-}
+  // ---- 外部 WH アプリケーションの設定 ----
+    // node1: ENTRY 側（wifi をスニファして、node2 の p2p IP にトンネル送信）
+    {
+        Ptr<WormholeApp> whEntry = CreateObject<WormholeApp>();
+        whEntry->Setup(
+            devices.Get(1),                 // node1 の wifi デバイス
+            mal_ifcont.GetAddress(1),      // 相方 (node2) の p2p IP
+            50000                               // UDP ポート
+        );
+        nodes.Get(1)->AddApplication(whEntry);
+        whEntry->SetStartTime(Seconds(0.0));
+        whEntry->SetStopTime(Seconds(totalTime));
+    }
 
+    // node2: EXIT 側（wifi をスニファしつつ、p2p からのトンネルを受けて wifi に再注入）
+    {
+        Ptr<WormholeApp> whExit = CreateObject<WormholeApp>();
+        whExit->Setup(
+            devices.Get(2),                 // node2 の wifi デバイス
+            mal_ifcont.GetAddress(0),      // 相方 (node1) の p2p IP
+            50000
+        );
+        nodes.Get(2)->AddApplication(whExit);
+        whExit->SetStartTime(Seconds(0.0));
+        whExit->SetStopTime(Seconds(totalTime));
+    }
+}
 

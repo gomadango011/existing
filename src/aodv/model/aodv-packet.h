@@ -275,6 +275,18 @@ public:
     return m_originSeqNo;
   }
 
+  void 
+  SetWHForwardFlag(uint8_t f) 
+  {
+    m_WHForwardFlag = f;
+  }
+
+  uint8_t
+  GetWHForwardFlag() const
+  {
+    return m_WHForwardFlag;
+  }
+
   // Flags
   /**
    * \brief Set the gratuitous RREP flag
@@ -323,6 +335,7 @@ private:
   uint32_t m_dstSeqNo; ///< Destination Sequence Number
   Ipv4Address m_origin; ///< Originator IP Address
   uint32_t m_originSeqNo; ///< Source Sequence Number
+  uint8_t m_WHForwardFlag;
 };
 
 /**
@@ -497,6 +510,26 @@ public:
     m_id = id;
   }
 
+  void SetNextnode(Ipv4Address n)
+  {
+    m_nextnode = n;
+  }
+
+  Ipv4Address GetNextnode() const
+  {
+    return m_nextnode;
+  }
+
+  void SetWHForwardFlag(uint8_t f)
+  {
+    m_WHForwardFlag =f;
+  }
+
+  uint8_t GetWHForwardFlag() const
+  {
+    return m_WHForwardFlag;
+  }
+
   // Flags
   /**
    * \brief Set the ack required flag
@@ -548,6 +581,8 @@ private:
   std::vector<Ipv4Address> m_list;
   uint16_t m_size;
   uint32_t m_id;
+  Ipv4Address m_nextnode;
+  uint8_t m_WHForwardFlag;
 
   // uint8_t my_size;
   // uint8_t get_size;
@@ -717,7 +752,10 @@ class WHCHeader : public Header
 {
 public:
   /// constructor
-  WHCHeader (uint32_t dstSeqNo =0);
+  WHCHeader (uint32_t id =0,
+             uint32_t seq = 0,
+             Ipv4Address origin = Ipv4Address()    
+  );
 
   /**
    * \brief Get the type ID.
@@ -730,6 +768,16 @@ public:
   uint32_t Deserialize (Buffer::Iterator start);
   void Print (std::ostream &os) const;
 
+  void Setid(uint32_t id)
+  {
+    m_id = id;
+  }
+
+  uint32_t Getid() const
+  {
+    return m_id;
+  }
+
   void SetDstSeqno (uint32_t dst)
   {
     m_dstSeqNo = dst;
@@ -741,6 +789,17 @@ public:
     return m_dstSeqNo;
   }
 
+  void 
+  SetOrigin (Ipv4Address o)
+  {
+    m_origin = o;
+  }
+
+  Ipv4Address
+  GetOrinig() const
+  {
+    return m_origin;
+  }
 
   /**
    * \brief Comparison operatorSendTo
@@ -749,7 +808,9 @@ public:
   bool operator== (WHCHeader const &o) const;
 
 private:
+  uint32_t m_id;
   uint32_t m_dstSeqNo; ///< Not used (must be 0)
+  Ipv4Address m_origin; //< RREQ送信元
 };
 
 
@@ -770,7 +831,7 @@ class WHEHeader : public Header
 {
 public:
   /// constructor
-  WHEHeader (uint32_t id = 0, std::vector<Ipv4Address> List = {}, uint16_t size = 0);
+  WHEHeader (uint32_t id = 0, Ipv4Address origin = Ipv4Address(), std::vector<Ipv4Address> List = {}, uint16_t size = 0);
 
   /**
    * \brief Get the type ID.
@@ -791,6 +852,16 @@ public:
   uint32_t Getid ()
   {
     return m_id;
+  }
+
+  void SetOrigin(Ipv4Address o)
+  {
+    m_origin = o;
+  }
+
+  Ipv4Address GetOrigin() const
+  {
+    return m_origin;
   }
 
   std::vector<Ipv4Address>
@@ -815,6 +886,15 @@ public:
     m_size = size;
   }
 
+  Ipv4Address Gettarget() const 
+  {
+    return m_targetnode;
+  }
+
+  void Settarget(Ipv4Address target)
+  {
+    m_targetnode = target;
+  }
 
   /**
    * \brief Comparison operatorSendTo
@@ -824,8 +904,10 @@ public:
 
 private:
   uint32_t m_id; ///< Not used (must be 0)
+  Ipv4Address m_origin;
   std::vector<Ipv4Address> m_list;
   uint16_t m_size;
+  Ipv4Address m_targetnode;
 };
 
 /**

@@ -352,6 +352,7 @@ private:
   void SendHello ();
   /// Send RREQ
   void SendRequest (Ipv4Address dst);
+  void SendAodvBroadcast (Ptr<Packet> packet);
   /// Send RREP
   void SendReply (RreqHeader const & rreqHeader, RoutingTableEntry const & toOrigin);
   /** Send RREP by intermediate node
@@ -361,7 +362,9 @@ private:
    */
   void SendReplyByIntermediateNode (RoutingTableEntry & toDst, RoutingTableEntry & toOrigin, bool gratRep);
 
-  void SendWHC (uint32_t DsrSeqNo);
+  void CheckResult(RrepHeader rrepHeader);
+
+  void SendWHC (RrepHeader rrepHeader);
 
   void SendWHE (WHCHeader const & WHCHeader, RoutingTableEntry const & toNeighbor);
 
@@ -424,6 +427,9 @@ private:
   {
     RrepHeader rrepHeader;
     Ipv4Address sender;
+    bool detec_end;
+    Time sendWHC;
+    uint8_t WHForwardFlag;
   };
 
   std::vector<recv_Rrep> Rrep_List;
