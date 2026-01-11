@@ -177,6 +177,42 @@ public:
    */
   int64_t AssignStreams (int64_t stream);
 
+  struct RouteLatencyEntry
+    {
+        Time start;      // RREQ 送信時刻
+        Time established; // RREP 受信時刻
+        Time latency;     // 経路作成時間
+    };
+
+  struct WhDetectionStats
+    {
+        uint32_t detectedWh = 0;    //WH攻撃を正常に検知した回数 true positive
+        uint32_t undetectedWh = 0;  //WH攻撃を検知できなかった回数 false negative
+        uint32_t falsePositive = 0; //正常ノードをご検知した回数  false positive
+        uint32_t truenegative = 0; //正常ノードを正常ノードと判定した回数  ture negative
+
+        uint32_t notApplicable = 0;  // ★ 判定対象外（NA）
+
+        uint64_t totalAodvCtrlMessages = 0;
+        uint64_t totalAodvCtrlBytes = 0;
+
+        Time m_routetime = Seconds(0);
+
+        bool Getroute = false;
+
+        std::map<uint32_t, RouteLatencyEntry> m_latencyTable;
+
+        //転送されたhelloメッセージを受信した回数
+        uint32_t helloForwardedCount = 0;
+    };
+
+    WhDetectionStats m_whStats;
+
+    WhDetectionStats Getevaluation()
+    {
+      return m_whStats;
+    }
+
 protected:
   virtual void DoInitialize (void);
 private:
@@ -360,7 +396,7 @@ private:
    * \param toOrigin routing table entry to originator
    * \param gratRep indicates whether a gratuitous RREP should be unicast to destination
    */
-  void SendReplyByIntermediateNode (RoutingTableEntry & toDst, RoutingTableEntry & toOrigin, bool gratRep);
+  void SendReplyByIntermediateNode (RoutingTableEntry & toDst, RoutingTableEntry & toOrigin, bool gratRep, uint32_t rreqid);
 
   void CheckResult(RrepHeader rrepHeader);
 

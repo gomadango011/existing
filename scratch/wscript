@@ -1,0 +1,20 @@
+# -*- Mode: python; py-indent-offset: 4; indent-tabs-mode: nil; coding: utf-8; -*-
+
+def build(bld):
+    # scratch/random.cc をビルドして実行できるようにする
+    # ここでリンクする ns-3 モジュールを列挙する（←重要）
+    prog = bld.create_ns3_program(
+        'random',
+        [
+            'core',
+            'network',
+            'internet',
+            'mobility',
+            'wifi',
+            'propagation',
+            'aodv',
+            'applications',
+        ]
+    )
+
+    prog.source = 'random.cc'

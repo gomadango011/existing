@@ -354,7 +354,7 @@ RrepHeader::GetSerializedSize () const
   // printf("m_size:%d\n", m_size);
   return 25
          + 4 //nextnode 
-         + 4 //WH転送フラグ
+         + 1 //WH転送フラグ
          + 4 * m_size;
   //return 19;
 }
@@ -389,6 +389,8 @@ uint32_t
 RrepHeader::Deserialize (Buffer::Iterator start)
 {
   Buffer::Iterator i = start;
+
+  m_list.clear();  
 
   m_flags = i.ReadU8 ();
   m_prefixSize = i.ReadU8 ();

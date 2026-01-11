@@ -235,10 +235,10 @@ int main (int argc, char **argv)
 
 //-----------------------------------------------------------------------------
 AodvExample::AodvExample () :
-  size (100),
+  size (400),
   size_a (5),
   step (50),
-  totalTime (100),
+  totalTime (50),
   pcap (true),
   printRoutes (true)
 {
@@ -271,10 +271,15 @@ void
 AodvExample::Run ()
 {
 //  Config::SetDefault ("ns3::WifiRemoteStationManager::RtsCtsThreshold", UintegerValue (1)); // enable rts cts all the time.
+  std::cout << "[DBG] CreateNodes\n";
   CreateNodes ();
+  std::cout << "[DBG] CreateDevices\n";
   CreateDevices ();
+  std::cout << "[DBG] InstallInternetStack\n";
   InstallInternetStack ();
+  std::cout << "[DBG] InstallApplications\n";
   InstallApplications ();
+  std::cout << "[DBG] Starting simulation...\n";
 
   std::cout << "Starting simulation for " << totalTime << " s ...\n";
 
@@ -412,25 +417,25 @@ AodvExample::CreateNodes ()
   //ノードをランダムに配置
   MobilityHelper mobility;
   mobility.SetPositionAllocator ("ns3::RandomRectanglePositionAllocator",
-                                "X", StringValue("ns3::UniformRandomVariable[Min=0|Max=300]"),
-                                "Y", StringValue("ns3::UniformRandomVariable[Min=-100|Max=100]")
+                                "X", StringValue("ns3::UniformRandomVariable[Min=0|Max=800]"),
+                                "Y", StringValue("ns3::UniformRandomVariable[Min=-100|Max=800]")
                                 );
   
   mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel");
 
   mobility.Install(nodes);
 
-  for (uint32_t i = 0; i < nodes.GetN(); i++)
-    {
-        //攻撃者ノード以外にAODVをインストール
-        if (i != 1 && i != 2)
-        {
-            not_malicious.Add(nodes.Get(i));
-        }
-    }
+//   for (uint32_t i = 0; i < nodes.GetN(); i++)
+//     {
+//         //攻撃者ノード以外にAODVをインストール
+//         if (i != 1 && i != 2)
+//         {
+//             not_malicious.Add(nodes.Get(i));
+//         }
+//     }
   
-  malicious.Add(nodes.Get(1));
-  malicious.Add(nodes.Get(2));
+//   malicious.Add(nodes.Get(1));
+//   malicious.Add(nodes.Get(2));
 
 
   // MobilityHelper mobility;
@@ -453,14 +458,19 @@ AodvExample::CreateNodes ()
   // mobility.Install(nodes);
 
 
-     AnimationInterface anim ("wormhole.xml"); // Mandatory
-  AnimationInterface::SetConstantPosition (nodes.Get (0), 0, 0);
-  AnimationInterface::SetConstantPosition (nodes.Get (1), 100, 0);//WH1
-  AnimationInterface::SetConstantPosition (nodes.Get (2), 200, 0);//WH2
-  AnimationInterface::SetConstantPosition (nodes.Get (3), 250, 0);
-  AnimationInterface::SetConstantPosition (nodes.Get (4), 50, 0);
-  AnimationInterface::SetConstantPosition (nodes.Get (5), 275, 20);
-  AnimationInterface::SetConstantPosition (nodes.Get (size - 1), 300, 0);
+  AnimationInterface anim ("wormhole.xml"); // Mandatory
+//   AnimationInterface::SetConstantPosition (nodes.Get (0), 0, 0);
+//   AnimationInterface::SetConstantPosition (nodes.Get (1), 80, 0);
+//   AnimationInterface::SetConstantPosition (nodes.Get (2), 160, 0);
+//   AnimationInterface::SetConstantPosition (nodes.Get (3), 240, 0);
+//   AnimationInterface::SetConstantPosition (nodes.Get (4), 320, 0);
+//   AnimationInterface::SetConstantPosition (nodes.Get (5), 400, 0);
+//   AnimationInterface::SetConstantPosition (nodes.Get (6), 480, 0);
+//   AnimationInterface::SetConstantPosition (nodes.Get (7), 560, 0);
+//   AnimationInterface::SetConstantPosition (nodes.Get (8), 640, 0);
+//   AnimationInterface::SetConstantPosition (nodes.Get (9), 720, 0);
+
+  AnimationInterface::SetConstantPosition (nodes.Get (size - 1), 800, 0);
   
   anim.EnablePacketMetadata(true);
 
@@ -469,28 +479,63 @@ AodvExample::CreateNodes ()
 void
 AodvExample::CreateDevices ()
 {
-  WifiMacHelper wifiMac;
-  wifiMac.SetType ("ns3::AdhocWifiMac");
-  YansWifiPhyHelper wifiPhy = YansWifiPhyHelper::Default ();
-  YansWifiChannelHelper wifiChannel = YansWifiChannelHelper::Default ();
-  wifiPhy.SetChannel (wifiChannel.Create ());
   WifiHelper wifi;
-  wifi.SetRemoteStationManager ("ns3::ConstantRateWifiManager", "DataMode", StringValue ("OfdmRate6Mbps"), "RtsCtsThreshold", UintegerValue (0));
-  devices = wifi.Install (wifiPhy, wifiMac, nodes); 
 
-  PointToPointHelper pointToPoint;
-  pointToPoint.SetDeviceAttribute ("DataRate", StringValue ("5Mbps"));
-  pointToPoint.SetChannelAttribute ("Delay", StringValue ("2ms"));
+  // ★2.4GHz帯(802.11g)に寄せる：5GHz(802.11a)より到達距離が出やすい
+  wifi.SetStandard (WIFI_PHY_STANDARD_80211g);
 
-  // NetDeviceContainer devices;
-  mal_devices = pointToPoint.Install (malicious);
+  // ★802.11g の OFDM 6Mbps は "ErpOfdmRate6Mbps"
+  wifi.SetRemoteStationManager ("ns3::ConstantRateWifiManager",
+                                "DataMode", StringValue ("ErpOfdmRate6Mbps"),
+                                "ControlMode", StringValue ("ErpOfdmRate6Mbps"),
+                                // ★隠れ端末が多い(多ノード)なら RTS/CTS を強制（PDRが上がりやすい）
+                                // 0=常にRTS/CTS, 2347=無効
+                                "RtsCtsThreshold", UintegerValue (0));
+
+  WifiMacHelper mac;
+  mac.SetType ("ns3::AdhocWifiMac");
+
+  YansWifiPhyHelper phy = YansWifiPhyHelper::Default ();
+
+  // ★送信電力を少し上げる（80mでの受信電力に余裕を作る）
+  phy.Set ("TxPowerStart", DoubleValue (20.0));
+  phy.Set ("TxPowerEnd",   DoubleValue (20.0));
+
+  // ★受信機の雑音指数（現実寄り）
+  phy.Set ("RxNoiseFigure", DoubleValue (7.0));
+
+  // ★感度寄りに（拾いにくいならさらに下げる：-92〜-96あたり）
+  phy.Set ("EnergyDetectionThreshold", DoubleValue (-94.0));
+  phy.Set ("CcaEdThreshold",           DoubleValue (-97.0));
+
+  // ---- Channel / Propagation ----
+  YansWifiChannelHelper channel;
+  channel.SetPropagationDelay ("ns3::ConstantSpeedPropagationDelayModel");
+
+  // ★ログ距離：Exponent を少し緩め（見通し屋外〜やや遮蔽くらいのイメージ）
+  // ReferenceLoss は 2.4GHzで 1mの自由空間損失に近い値（目安 40dB前後）
+  channel.AddPropagationLoss ("ns3::LogDistancePropagationLossModel",
+                              "Exponent",          DoubleValue (2.7),
+                              "ReferenceDistance", DoubleValue (1.0),
+                              "ReferenceLoss",     DoubleValue (40.0));
+
+  // ★まずは Nakagami を外して “平均挙動を安定化” させる（PDR改善確認が先）
+  // もし「揺らぎも入れたい」なら後で追加（下に追記）
+
+  // ★上限クリップ（80m間隔なら 120m くらいにして余裕を見るのが無難）
+  channel.AddPropagationLoss ("ns3::RangePropagationLossModel",
+                              "MaxRange", DoubleValue (100.0));
+
+  phy.SetChannel (channel.Create ());
+
+  devices = wifi.Install (phy, mac, nodes);
 
   if (pcap)
-    {
-      wifiPhy.EnablePcapAll (std::string ("aodv"));
-      pointToPoint.EnablePcapAll (std::string ("point-to-point"));
-    }
+  {
+    phy.EnablePcapAll ("aodv");
+  }
 }
+
 
 void
 AodvExample::InstallInternetStack ()
@@ -501,17 +546,11 @@ AodvExample::InstallInternetStack ()
   // you can configure AODV attributes here using aodv.Set(name, value)
   InternetStackHelper stack;
   stack.SetRoutingHelper (aodv); // has effect on the next Install ()
-  stack.Install (not_malicious);
+  stack.Install (nodes);
 
-  InternetStackHelper stack2;
-  stack2.Install(malicious);
-  //IDstack2.Install (malicious);
   Ipv4AddressHelper address;
   address.SetBase ("10.0.0.0", "255.0.0.0","0.0.0.1");
   interfaces = address.Assign (devices);
-
-  address.SetBase ("10.1.2.0", "255.255.255.0", "0.0.0.1");
-  mal_ifcont = address.Assign (mal_devices);
 
   if (printRoutes)
     {
@@ -530,31 +569,6 @@ AodvExample::InstallApplications ()
   p.Start (Seconds (0));
   p.Stop (Seconds (totalTime) - Seconds (0.001));
 
-  // ---- 外部 WH アプリケーションの設定 ----
-    // node1: ENTRY 側（wifi をスニファして、node2 の p2p IP にトンネル送信）
-    {
-        Ptr<WormholeApp> whEntry = CreateObject<WormholeApp>();
-        whEntry->Setup(
-            devices.Get(1),                 // node1 の wifi デバイス
-            mal_ifcont.GetAddress(1),      // 相方 (node2) の p2p IP
-            50000                               // UDP ポート
-        );
-        nodes.Get(1)->AddApplication(whEntry);
-        whEntry->SetStartTime(Seconds(0.0));
-        whEntry->SetStopTime(Seconds(totalTime));
-    }
 
-    // node2: EXIT 側（wifi をスニファしつつ、p2p からのトンネルを受けて wifi に再注入）
-    {
-        Ptr<WormholeApp> whExit = CreateObject<WormholeApp>();
-        whExit->Setup(
-            devices.Get(2),                 // node2 の wifi デバイス
-            mal_ifcont.GetAddress(0),      // 相方 (node1) の p2p IP
-            50000
-        );
-        nodes.Get(2)->AddApplication(whExit);
-        whExit->SetStartTime(Seconds(0.0));
-        whExit->SetStopTime(Seconds(totalTime));
-    }
 }
 
