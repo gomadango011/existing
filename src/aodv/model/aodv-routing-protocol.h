@@ -481,6 +481,17 @@ private:
   int WH2;
 
   uint32_t rrepid;
+
+  uint8_t m_whMode; // 0=normal,1=internal,2=external
+
+  void SetWhMode(uint8_t mode)
+  {
+    m_whMode = mode;
+  }
+  uint8_t GetWhMode() const
+  {
+    return m_whMode;
+  }
   
 };
 

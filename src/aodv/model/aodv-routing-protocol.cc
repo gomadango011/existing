@@ -183,7 +183,8 @@ RoutingProtocol::RoutingProtocol ()
     get_rreptimes (0),
     WH1 (0),
     WH2 (0),
-    rrepid (0)
+    rrepid (0),
+    m_whMode(1)
 
     
 {
@@ -310,7 +311,13 @@ RoutingProtocol::GetTypeId (void)
                    StringValue ("ns3::UniformRandomVariable"),
                    MakePointerAccessor (&RoutingProtocol::m_uniformRandomVariable),
                    MakePointerChecker<UniformRandomVariable> ())
-  ;
+    //シナリオファイルからWH攻撃のモードを取得
+    .AddAttribute("WhMode",
+                  "Wormhole mode: 0=normal, 1=internal WH, 2=external WH",
+                  UintegerValue(2),
+                  MakeUintegerAccessor(&RoutingProtocol::SetWhMode,
+                                        &RoutingProtocol::GetWhMode),
+                  MakeUintegerChecker<uint8_t>(0, 2));
   return tid;
 }
 
@@ -1807,7 +1814,7 @@ RoutingProtocol::RecvReply (Ptr<Packet> p, Ipv4Address receiver, Ipv4Address sen
 
   //printf("RREPのreceiver: %d\n", receiver.Get());
 
-  if(receiver == Ipv4Address("10.1.2.1"))
+  if(receiver == Ipv4Address("10.1.2.1") || receiver == Ipv4Address("10.1.2.2"))
   {
     printf("WHノードの可能性があります\n");
 
@@ -1931,7 +1938,11 @@ RoutingProtocol::RecvReply (Ptr<Packet> p, Ipv4Address receiver, Ipv4Address sen
       NS_LOG_DEBUG("RREPが目的地に到着");
       get_rreptimes++;
 
-      if(receiver == Ipv4Address("10.0.0.1") && !m_whStats.Getroute)
+      if((receiver == Ipv4Address("10.0.0.1")
+          || receiver == Ipv4Address("10.0.0.4")
+          || receiver == Ipv4Address("10.0.0.6")
+         ) 
+          && !m_whStats.Getroute)
       {
         NS_LOG_DEBUG("経路作成時間を記録");
         m_whStats.Getroute = true;
@@ -1967,6 +1978,8 @@ RoutingProtocol::RecvReply (Ptr<Packet> p, Ipv4Address receiver, Ipv4Address sen
       m_routingTable.LookupRoute (dst, toDst);
       // SendRequest(Ipv4Address("10.0.0.200"));
       //SendPacketFromQueue (dst, toDst.GetRoute ());
+
+      SendPacketFromQueue(dst, toDst.GetRoute());
       
       // if(get_rreptimes == 10)
       // {
@@ -2058,6 +2071,47 @@ RoutingProtocol::RecvReply (Ptr<Packet> p, Ipv4Address receiver, Ipv4Address sen
 
   rrepHeader.SetNextnode(toOrigin.GetNextHop());
 
+  if(m_whMode == 1 && (receiver == Ipv4Address("10.1.2.1") || receiver == Ipv4Address("10.1.2.2")))
+  {
+    uint32_t random = m_uniformRandomVariable->GetInteger(0, 1); // 0 or 1（各 1/2）
+
+    if(random == 1)
+    {
+      //WHノードを正常ノードとご判定
+      std::ofstream ofs("test.log", std::ios::out | std::ios::app);
+      uint32_t nodeId = GetObject<Node>()->GetId();
+
+      ofs << "WHノード自身がRREP受信したため，にWHリンクを正常リンクとご判定  ノードID：" << nodeId 
+      << "   シミュレーション時間：" << Simulator::Now() 
+      << std::endl;
+
+      NS_LOG_DEBUG("WHノード自身がRREP受信したため，にWHリンクを正常リンクとご判定");
+      
+      ofs.close();
+
+      m_whStats.undetectedWh++;
+
+      //RREPパケット作製
+      Ptr<Packet> packet = Create<Packet> ();
+      SocketIpTtlTag ttl;
+      ttl.SetTtl (tag.GetTtl () - 1);
+      packet->AddPacketTag (ttl);
+      packet->AddHeader (rrepHeader);
+      TypeHeader tHeader (AODVTYPE_RREP);
+
+      packet->AddHeader (tHeader);
+
+      SendAodvBroadcast(packet);
+      return;
+        
+    }else
+    {
+      NS_LOG_DEBUG("WHノード自身がRREP受信 正常に検知");
+      m_whStats.detectedWh++;
+      return;
+    }
+  }
+
   //検知開始
   //隣接ノードリスト比較　自分の隣接ノードリスト：List　受信した隣接ノードリスト：get_List
   for(int i = 0; i < my_size; i++)
@@ -2086,6 +2140,20 @@ RoutingProtocol::RecvReply (Ptr<Packet> p, Ipv4Address receiver, Ipv4Address sen
           ofs.close();
 
           m_whStats.undetectedWh++;
+
+          //RREPパケット作製
+        Ptr<Packet> packet = Create<Packet> ();
+        SocketIpTtlTag ttl;
+        ttl.SetTtl (tag.GetTtl () - 1);
+        packet->AddPacketTag (ttl);
+        packet->AddHeader (rrepHeader);
+        TypeHeader tHeader (AODVTYPE_RREP);
+
+        packet->AddHeader (tHeader);
+
+        SendAodvBroadcast(packet);
+        return;
+        
         }else{
           NS_LOG_DEBUG("RREP受信時に、正常ノードを正常に検知");
           //正常ノードを正常ノードと判定した回数

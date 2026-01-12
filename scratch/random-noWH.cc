@@ -189,6 +189,17 @@ private:
   /// Print routes if true
   bool printRoutes;
 
+  //結果を保存するファイル
+  std::string result_file;
+
+  //エンド間の距離
+  int end_distance;
+
+  //シード値を決定するためのイテレーション
+  int iteration;
+
+  uint8_t whmode;
+
   // network
   /// nodes used in the example
   NodeContainer nodes;
@@ -238,9 +249,13 @@ AodvExample::AodvExample () :
   size (400),
   size_a (5),
   step (50),
-  totalTime (50),
+  totalTime (30),
   pcap (true),
-  printRoutes (true)
+  printRoutes (true),
+  result_file("deff/p-log.csv"), //結果を保存するファイル
+  end_distance(800),
+  iteration(1),
+  whmode(0)
 {
 }
 
@@ -252,9 +267,6 @@ AodvExample::Configure (int argc, char **argv)
   //LogComponentEnable ("UdpEchoClientApplication", LOG_LEVEL_ALL);
   //LogComponentEnable ("UdpEchoServerApplication", LOG_LEVEL_ALL);
 
-
-
-  SeedManager::SetSeed (12345);
   CommandLine cmd;
 
   cmd.AddValue ("pcap", "Write PCAP traces.", pcap);
@@ -263,7 +275,14 @@ AodvExample::Configure (int argc, char **argv)
   cmd.AddValue ("time", "Simulation time, s.", totalTime);
   cmd.AddValue ("step", "Grid step, m", step);
 
+  cmd.AddValue("result_file", "result file", result_file);
+  cmd.AddValue("end_distance", "end distance", end_distance); //エンド間の距離
+  cmd.AddValue("iteration", "iteration", iteration); //イテレーション
+
   cmd.Parse (argc, argv);
+
+  SeedManager::SetSeed (iteration);
+  
   return true;
 }
 
@@ -294,11 +313,32 @@ AodvExample::Run ()
   Simulator::Destroy ();
 }
 
+static bool NeedHeaderByIostream(const std::string& path)
+{
+    std::ifstream ifs(path, std::ios::in);
+    if (!ifs.good())
+    {
+        return true; // 開けない=存在しない扱い → ヘッダー必要
+    }
+    ifs.seekg(0, std::ios::end);
+    return (ifs.tellg() == 0);
+}
+
 void
 AodvExample::Report (std::ostream &)
 { 
+  bool needHeader = NeedHeaderByIostream(result_file);
+
   // ★ 出力ファイルを開く（追記 or 上書き）
-    OpenLogFileOverwrite(ofs,"deff/p-log-test2.csv");
+    OpenLogFileOverwrite(ofs,result_file);
+
+    if (needHeader)
+    {
+        ofs << "seed,nodes,wh_mode,wait_time,end_distance,"
+            << "tp,fn,fp,tn,"
+            << "wh_detection_rate,false_positive_rate,"
+            << "total_ctrl_bytes,avg_route_latency\n";
+    }
 
     uint32_t totalTP = 0, totalFN = 0, totalFP = 0, totalTN = 0, totalNA = 0;
     uint64_t totalBytes = 0;
@@ -306,17 +346,6 @@ AodvExample::Report (std::ostream &)
     std::vector<double> latencies;
     uint32_t latencyCount = 0;
     Time totalRouteTime = Seconds(0);
-
-    // ===== ヘッダはファイルが空のときだけ =====
-    static bool headerWritten = false;
-    if (!headerWritten)
-    {
-        ofs << "seed,nodes,wh_mode,end_distance,"
-            << "tp,fn,fp,tn,"
-            << "wh_detection_rate,false_positive_rate,"
-            << "total_ctrl_bytes,avg_route_latency,totalforwardedHello\n";
-        headerWritten = true;
-    }
 
     for (uint32_t i = 0; i < nodes.GetN(); i++)
     {
@@ -371,10 +400,10 @@ AodvExample::Report (std::ostream &)
     //     avgLatency = sum / latencies.size();
     // }
 
-     ofs << 1 << ","
+     ofs << iteration << ","
         << size << ","
-        << 2 << ","               // WhMode
-        << 200 << ","
+        << whmode << ","               // WhMode
+        << end_distance << ","
         << totalTP << ","
         << totalFN << ","
         << totalFP << ","
@@ -402,77 +431,112 @@ AodvExample::CreateNodes ()
       os << "node-" << i;
       Names::Add (os.str (), nodes.Get (i));
     }
-  // Create static grid
+
+  //固定ノード
+  NodeContainer fixedNodes;
+  //移動ノード
+  NodeContainer mobileNodes;
+
+  for (uint32_t i = 0; i < size; ++i) {
+      if(i == 0 || i == size - 1 
+        //  || i == 1 || i == 2 //WHノード
+         || i == 3 || i == 4 //送受信ノード
+         || i == 5 || i == 6 //送受信ノード
+        ) {
+          // 固定ノードとして追加
+          fixedNodes.Add(nodes.Get(i));
+      }
+      else
+      {
+          // 移動ノードとして追加
+          mobileNodes.Add(nodes.Get(i));
+      }
+  }
+
+  uint32_t total = mobileNodes.GetN();
+  uint32_t half  = total / 2;
+
+  NodeContainer carNodes;
+  NodeContainer pedestrianNodes;
+
+  for (uint32_t i = 0; i < total; ++i)
+  {
+      if (i < half)
+      {
+          carNodes.Add(mobileNodes.Get(i));
+      }
+      else
+      {
+          pedestrianNodes.Add(mobileNodes.Get(i));
+      }
+  }
+
+  // //ノードをランダムに配置
   // MobilityHelper mobility;
-  // mobility.SetPositionAllocator ("ns3::GridPositionAllocator",
-  //                                "MinX", DoubleValue (0.0),
-  //                                "MinY", DoubleValue (0.0),
-  //                                "DeltaX", DoubleValue (step),
-  //                                "DeltaY", DoubleValue (10000),
-  //                                "GridWidth", UintegerValue (size),
-  //                                "LayoutType", StringValue ("RowFirst"));
-  // mobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
-  // mobility.Install (nodes);
-
-  //ノードをランダムに配置
-  MobilityHelper mobility;
-  mobility.SetPositionAllocator ("ns3::RandomRectanglePositionAllocator",
-                                "X", StringValue("ns3::UniformRandomVariable[Min=0|Max=800]"),
-                                "Y", StringValue("ns3::UniformRandomVariable[Min=-100|Max=800]")
-                                );
+  // mobility.SetPositionAllocator ("ns3::RandomRectanglePositionAllocator",
+  //                               "X", StringValue("ns3::UniformRandomVariable[Min=0|Max=300]"),
+  //                               "Y", StringValue("ns3::UniformRandomVariable[Min=-100|Max=100]")
+  //                               );
   
-  mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel");
-
-  mobility.Install(nodes);
-
-//   for (uint32_t i = 0; i < nodes.GetN(); i++)
-//     {
-//         //攻撃者ノード以外にAODVをインストール
-//         if (i != 1 && i != 2)
-//         {
-//             not_malicious.Add(nodes.Get(i));
-//         }
-//     }
-  
-//   malicious.Add(nodes.Get(1));
-//   malicious.Add(nodes.Get(2));
-
-
-  // MobilityHelper mobility;
-  // Ptr<ListPositionAllocator> positionAlloc = CreateObject <ListPositionAllocator>();
-  // positionAlloc ->Add(Vector(0, 0, 0)); // node0
-  // positionAlloc ->Add(Vector(40, -10, 0)); // node1
-  // positionAlloc ->Add(Vector(80, -10, 0)); // node2
-  // positionAlloc ->Add(Vector(40, -10, 0)); // node3
-  // positionAlloc ->Add(Vector(80, -10, 0)); // node4
-  // positionAlloc ->Add(Vector(120, 0, 0)); // node5
-  // // positionAlloc ->Add(Vector(20, -10, 0)); // node6
-  // // positionAlloc ->Add(Vector(60, -10, 0)); // node7
-  // // positionAlloc ->Add(Vector(100, -10, 0)); // node8
-  // // positionAlloc ->Add(Vector(120, 0, 0)); //dst 9
-  // // positionAlloc ->Add(Vector(200, 0, 0)); // node2
-  // // positionAlloc ->Add(Vector(25, 25, 0)); // node2
-  // // positionAlloc ->Add(Vector(75, 25, 0)); // node2
-  // mobility.SetPositionAllocator(positionAlloc);
   // mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel");
+
   // mobility.Install(nodes);
 
+  // ===============================
+  // 共通 PositionAllocator ノードをランダムに配置
+  // ===============================
+  Ptr<PositionAllocator> positionAlloc =
+      CreateObject<RandomRectanglePositionAllocator>();
+  positionAlloc->SetAttribute("X",
+      StringValue("ns3::UniformRandomVariable[Min=0|Max=800]"));
+  positionAlloc->SetAttribute("Y",
+      StringValue("ns3::UniformRandomVariable[Min=0|Max=800]"));
 
-  AnimationInterface anim ("wormhole.xml"); // Mandatory
-//   AnimationInterface::SetConstantPosition (nodes.Get (0), 0, 0);
-//   AnimationInterface::SetConstantPosition (nodes.Get (1), 80, 0);
-//   AnimationInterface::SetConstantPosition (nodes.Get (2), 160, 0);
-//   AnimationInterface::SetConstantPosition (nodes.Get (3), 240, 0);
-//   AnimationInterface::SetConstantPosition (nodes.Get (4), 320, 0);
-//   AnimationInterface::SetConstantPosition (nodes.Get (5), 400, 0);
-//   AnimationInterface::SetConstantPosition (nodes.Get (6), 480, 0);
-//   AnimationInterface::SetConstantPosition (nodes.Get (7), 560, 0);
-//   AnimationInterface::SetConstantPosition (nodes.Get (8), 640, 0);
-//   AnimationInterface::SetConstantPosition (nodes.Get (9), 720, 0);
+  // ===============================
+  // 自動車ノード（11–16 m/s）
+  // ===============================
+  MobilityHelper carMobility;
+  carMobility.SetPositionAllocator(positionAlloc);
+  carMobility.SetMobilityModel(
+        "ns3::RandomWaypointMobilityModel",
+        "Speed", StringValue("ns3::UniformRandomVariable[Min=6|Max=13.888889]"),
+        "Pause", StringValue("ns3::UniformRandomVariable[Min=0.0|Max=5.0]"),
+        "PositionAllocator", PointerValue(positionAlloc)
+    );
+  carMobility.Install(carNodes);
 
-  AnimationInterface::SetConstantPosition (nodes.Get (size - 1), 800, 0);
+  // ===============================
+  // 歩行者ノード（1–5 m/s）
+  // ===============================
+  MobilityHelper pedestrianMobility;
+  pedestrianMobility.SetPositionAllocator(positionAlloc);
+  pedestrianMobility.SetMobilityModel(
+      "ns3::RandomWaypointMobilityModel",
+      "Speed", StringValue("ns3::UniformRandomVariable[Min=1.0|Max=5.0]"),
+      "Pause", StringValue("ns3::ConstantRandomVariable[Constant=0.0]"),
+      "PositionAllocator", PointerValue(positionAlloc)
+  );
+  pedestrianMobility.Install(pedestrianNodes);
+
+  MobilityHelper fixedMobility;
+
+  // 固定ノードの位置を設定
+  Ptr<ListPositionAllocator> fixedpositionAlloc = CreateObject<ListPositionAllocator>();
+  fixedpositionAlloc->Add(Vector(0, 400, 0));  //送信者の位置情報　ID=0
+
+  fixedpositionAlloc->Add(Vector(0, 500, 0));  //送信ノード２            ID:3
+  fixedpositionAlloc->Add(Vector(end_distance, 300, 0));  //受信ノード2         ID:4
+
+  fixedpositionAlloc->Add(Vector(0, 300, 0));  //送信ノード３           ID:5
+  fixedpositionAlloc->Add(Vector(end_distance, 500, 0));  //受信者ノード3  ID:6
   
-  anim.EnablePacketMetadata(true);
+  fixedpositionAlloc->Add(Vector(end_distance, 400, 0));  //受信者の位置情報  ID=size-1
+
+  fixedMobility.SetPositionAllocator(fixedpositionAlloc);
+  
+  fixedMobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
+
+  fixedMobility.Install (fixedNodes);
 
 }
 
@@ -541,7 +605,6 @@ void
 AodvExample::InstallInternetStack ()
 {
   AodvHelper aodv;
-  PointToPointHelper point;
 
   // you can configure AODV attributes here using aodv.Set(name, value)
   InternetStackHelper stack;
@@ -562,13 +625,36 @@ AodvExample::InstallInternetStack ()
 void
 AodvExample::InstallApplications ()
 {
-  V4PingHelper ping (interfaces.GetAddress (size - 1));
-  ping.SetAttribute ("Verbose", BooleanValue (true));
+  // ================================
+  // 1つ目の送信ノード（ID = 0 → 受信者 ID = size - 1）
+  // ================================
+  Ipv4Address dst1 = interfaces.GetAddress(size - 1); // 受信者
+  V4PingHelper ping1(dst1);
+  ping1.SetAttribute ("Verbose", BooleanValue (true));
+  ApplicationContainer app1 = ping1.Install(nodes.Get(0));  // 送信者
+  app1.Start(Seconds(0));
+  app1.Stop(Seconds(totalTime) - Seconds(0.001));
 
-  ApplicationContainer p = ping.Install (nodes.Get (0));
-  p.Start (Seconds (0));
-  p.Stop (Seconds (totalTime) - Seconds (0.001));
+
+  // ================================
+  // 2つ目の送信ノード（ID = 3 → 受信者 ID = 4）
+  // ================================
+  Ipv4Address dst2 = interfaces.GetAddress(4);
+  V4PingHelper ping2(dst2);
+  ping2.SetAttribute ("Verbose", BooleanValue (true));
+  ApplicationContainer app2 = ping2.Install(nodes.Get(3));  // 送信者
+  app2.Start(Seconds(0));
+  app2.Stop(Seconds(totalTime) - Seconds(0.001));
 
 
+  // ================================
+  // 3つ目の送信ノード（ID = 5 → 受信者 ID = 6）
+  // ================================
+  Ipv4Address dst3 = interfaces.GetAddress(6);
+  V4PingHelper ping3(dst3);
+  ping3.SetAttribute ("Verbose", BooleanValue (true));
+  ApplicationContainer app3 = ping3.Install(nodes.Get(5));  // 送信者
+  app3.Start(Seconds(0));
+  app3.Stop(Seconds(totalTime) - Seconds(0.001));
 }
 
