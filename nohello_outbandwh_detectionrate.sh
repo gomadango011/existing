@@ -10,7 +10,7 @@ SIZE=600
 END_DISTANCE=800
 WH_SIZES=(300 400 500 600)
 
-ROOT_DIR="result_existing/outband"
+ROOT_DIR="result_existing/outban/nohello"
 BASE_NAME="WHdetectionrate"
 mkdir -p "${ROOT_DIR}"
 

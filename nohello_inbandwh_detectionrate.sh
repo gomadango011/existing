@@ -12,7 +12,7 @@ END_DISTANCE=800
 WH_SIZES=(300 400 500 600)
 
 # ===== output dir (auto increment if exists) =====
-ROOT_DIR="result_existing/inband"
+ROOT_DIR="result_existing/inband/nohello"
 BASE_NAME="WHdetectionrate"
 mkdir -p "${ROOT_DIR}"
 
