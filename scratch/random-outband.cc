@@ -210,6 +210,8 @@ private:
   //WH攻撃のモード 0 =  攻撃なし、1 = 内部WH攻撃、2 = 外部WH攻撃
   uint8_t whmode;
 
+  uint8_t forwardmode;  //0 = 全パケット転送  1 = RREQとRREPのみ転送
+
   // network
   /// nodes used in the example
   NodeContainer nodes;
@@ -267,7 +269,8 @@ AodvExample::AodvExample () :
   WH_size(350),
   end_distance(800), //エンド間の距離
   iteration(1), //イテレーション
-  whmode(2)
+  whmode(2),
+  forwardmode(0)
 {
 }
 
@@ -292,6 +295,7 @@ AodvExample::Configure (int argc, char **argv)
   cmd.AddValue("WH_size", "WH size", WH_size); //WHの長さ
   cmd.AddValue("end_distance", "end distance", end_distance); //エンド間の距離
   cmd.AddValue("iteration", "iteration", iteration); //イテレーション
+  cmd.AddValue("forwardmode", "forwardmode", forwardmode); //WH攻撃の転送モード
 
   cmd.Parse (argc, argv);
 
@@ -356,7 +360,7 @@ AodvExample::Report (std::ostream &)
 
   if (needHeader)
   {
-      ofs << "seed,nodes,wh_mode,wait_time,end_distance,"
+      ofs << "seed,nodes,wh_mode,forwardmode,end_distance,"
           << "tp,fn,fp,tn,"
           << "wh_detection_rate,false_positive_rate,"
           << "total_ctrl_bytes,avg_route_latency\n";
@@ -418,6 +422,7 @@ AodvExample::Report (std::ostream &)
   ofs << iteration << ","
       << size << ","
       << whmode << ","               // WhMode
+      << forwardmode << ","
       << end_distance << ","
       << totalTP << ","
       << totalFN << ","
@@ -738,6 +743,10 @@ AodvExample::InstallApplications ()
   // node1: ENTRY 側（wifi をスニファして、node2 の p2p IP にトンネル送信）
   {
       Ptr<WormholeApp> whEntry = CreateObject<WormholeApp>();
+
+      //0 = 全パケット転送   1 = RREQとRREPのみ転送
+      whEntry->SetAttribute ("ForwardMode", UintegerValue (forwardmode));
+
       whEntry->Setup(
           devices.Get(1),                 // node1 の wifi デバイス
           mal_ifcont.GetAddress(1),      // 相方 (node2) の p2p IP
@@ -751,6 +760,10 @@ AodvExample::InstallApplications ()
   // node2: EXIT 側（wifi をスニファしつつ、p2p からのトンネルを受けて wifi に再注入）
   {
       Ptr<WormholeApp> whExit = CreateObject<WormholeApp>();
+
+      //0 = 全パケット転送   1 = RREQとRREPのみ転送
+      whExit->SetAttribute ("ForwardMode", UintegerValue (forwardmode));
+
       whExit->Setup(
           devices.Get(2),                 // node2 の wifi デバイス
           mal_ifcont.GetAddress(0),      // 相方 (node1) の p2p IP

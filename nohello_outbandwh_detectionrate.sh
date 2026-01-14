@@ -2,17 +2,15 @@
 set -u
 
 WAF="./waf"
-SCENARIO="random-inband"
+SCENARIO="random-outband"
 
-# ===== experiment params =====
 RUN_COUNT=20
 TIME=30
 SIZE=600
 END_DISTANCE=800
 WH_SIZES=(300 400 500 600)
 
-# ===== output dir (auto increment if exists) =====
-ROOT_DIR="result_existing/inband"
+ROOT_DIR="result_existing/outband"
 BASE_NAME="WHdetectionrate"
 mkdir -p "${ROOT_DIR}"
 
@@ -47,7 +45,7 @@ for WH in "${WH_SIZES[@]}"; do
   mkdir -p "${WH_DIR}"
 
   OUT="${WH_DIR}/result.csv"
-  [[ -f "${OUT}" ]] || : > "${OUT}"  # 空ファイル作成（C++側のヘッダー判定用）
+  [[ -f "${OUT}" ]] || : > "${OUT}"
 
   echo "[INFO] WH_size=${WH} -> ${OUT}"
 
@@ -55,8 +53,7 @@ for WH in "${WH_SIZES[@]}"; do
     STDOUT_LOG="${LOG_DIR}/wh_${WH}_iter_${i}.out"
     STDERR_LOG="${LOG_DIR}/wh_${WH}_iter_${i}.err"
 
-    # ★比較手法 random-inband は --wait_time を受け取らないので渡さない
-    RUN_STR="${SCENARIO} --size=${SIZE} --time=${TIME} --WH_size=${WH} --end_distance=${END_DISTANCE} --iteration=${i} --result_file=${OUT} --forwardmode=0"
+    RUN_STR="${SCENARIO} --size=${SIZE} --time=${TIME} --WH_size=${WH} --end_distance=${END_DISTANCE} --iteration=${i} --result_file=${OUT} --forwardmode=1"
 
     echo "[RUN] ${WAF} --run \"${RUN_STR}\"" | tee -a "${STDOUT_LOG}"
     "${WAF}" --run "${RUN_STR}" > "${STDOUT_LOG}" 2> "${STDERR_LOG}"

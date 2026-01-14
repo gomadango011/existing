@@ -56,7 +56,7 @@ for WH in "${WH_SIZES[@]}"; do
     STDERR_LOG="${LOG_DIR}/wh_${WH}_iter_${i}.err"
 
     # ★比較手法 random-inband は --wait_time を受け取らないので渡さない
-    RUN_STR="${SCENARIO} --size=${SIZE} --time=${TIME} --WH_size=${WH} --end_distance=${END_DISTANCE} --iteration=${i} --result_file=${OUT} --forwardmode=0"
+    RUN_STR="${SCENARIO} --size=${SIZE} --time=${TIME} --WH_size=${WH} --end_distance=${END_DISTANCE} --iteration=${i} --result_file=${OUT} --forwardmode=1"
 
     echo "[RUN] ${WAF} --run \"${RUN_STR}\"" | tee -a "${STDOUT_LOG}"
     "${WAF}" --run "${RUN_STR}" > "${STDOUT_LOG}" 2> "${STDERR_LOG}"

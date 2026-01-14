@@ -1403,7 +1403,7 @@ RoutingProtocol::RecvRequest (Ptr<Packet> p, Ipv4Address receiver, Ipv4Address s
   //  (i) それ自身が目的地である、
   if (IsMyOwnAddress (rreqHeader.GetDst ()))
     {
-      printf("RREQが目的地に到着\n");
+      //printf("RREQが目的地に到着\n");
       m_routingTable.LookupRoute (origin, toOrigin);
       NS_LOG_DEBUG ("Send reply since I am the destination");
       SendReply (rreqHeader, toOrigin);
@@ -1565,7 +1565,8 @@ RoutingProtocol::SendReply (RreqHeader const & rreqHeader, RoutingTableEntry con
    */
 
   //隣接ノードリスト取得
-  std::vector<Ipv4Address> List = m_nb.GetNeighborList();
+  // std::vector<Ipv4Address> List = m_nb.GetNeighborList();  //全隣接ノード取得
+  std::vector<Ipv4Address> List = m_nb.GetHelloNeighborList();
 
   //printf("隣接リスト表示\n");
 
@@ -1595,13 +1596,13 @@ RoutingProtocol::SendReply (RreqHeader const & rreqHeader, RoutingTableEntry con
 
   rrepHeader.SetNextnode(toOrigin.GetNextHop());
 
-  printf("RREPを送信　　ID：%d\n", rrepHeader.Getid());
+  //printf("RREPを送信　　ID：%d\n", rrepHeader.Getid());
 
- //printf("RREPのネクストホップ：%u\n", toOrigin.GetNextHop().Get());
+ ////printf("RREPのネクストホップ：%u\n", toOrigin.GetNextHop().Get());
 
   if(toOrigin.GetNextHop() == Ipv4Address("10.0.0.3"))
   {
-    printf("ネクストホップがWHの可能性があります\n");
+    //printf("ネクストホップがWHの可能性があります\n");
   }
 
   rrepHeader.SetNeighbors(List);
@@ -1667,7 +1668,9 @@ RoutingProtocol::SendReplyByIntermediateNode (RoutingTableEntry & toDst, Routing
   NS_LOG_FUNCTION (this);
 
   //隣接ノードリスト取得
-  std::vector<Ipv4Address> List = m_nb.GetNeighborList();
+  // std::vector<Ipv4Address> List = m_nb.GetNeighborList();  //全隣接ノード取得
+  std::vector<Ipv4Address> List = m_nb.GetHelloNeighborList();
+
   uint16_t size = List.size();
 
   NS_LOG_DEBUG("受信したRREQID：" << rreqid);
@@ -1816,7 +1819,7 @@ RoutingProtocol::RecvReply (Ptr<Packet> p, Ipv4Address receiver, Ipv4Address sen
 
   if(receiver == Ipv4Address("10.1.2.1") || receiver == Ipv4Address("10.1.2.2"))
   {
-    printf("WHノードの可能性があります\n");
+    // printf("WHノードの可能性があります\n");
 
     std::ofstream writing_file;
     std::string filename = "WH_count.txt";
@@ -1856,7 +1859,8 @@ RoutingProtocol::RecvReply (Ptr<Packet> p, Ipv4Address receiver, Ipv4Address sen
 
   
   //隣接ノードリスト取得
-  std::vector<Ipv4Address> List = m_nb.GetNeighborList();
+  // std::vector<Ipv4Address> List = m_nb.GetNeighborList();  //全隣接ノード取得
+  std::vector<Ipv4Address> List = m_nb.GetHelloNeighborList();
 
   //printf("隣接リスト表示\n");
 
@@ -2186,7 +2190,7 @@ RoutingProtocol::RecvReply (Ptr<Packet> p, Ipv4Address receiver, Ipv4Address sen
     }
   }
 
-  printf("Send WHC  ID:%d\n", rrepHeader.Getid());
+  //printf("Send WHC  ID:%d\n", rrepHeader.Getid());
 
   //RREQ送信元IPアドレスとRREQIDをキーとして保存
   
@@ -2281,7 +2285,7 @@ void
 RoutingProtocol::SendWHC (RrepHeader rrepHeader)
 {
   //WHCHeader作製
-  printf("WHC送信\n");
+  //printf("WHC送信\n");
   //printf("DstSeqNo2: %d\n", DstSeqno);
 
 
@@ -2401,7 +2405,8 @@ void RoutingProtocol::SendWHE (WHCHeader const & WHCHeader, RoutingTableEntry co
   NS_LOG_FUNCTION (this << toNeighbor.GetDestination());
   
 //隣接ノードリスト取得
-  std::vector<Ipv4Address> List = m_nb.GetNeighborList();
+  // std::vector<Ipv4Address> List = m_nb.GetNeighborList();  //全隣接ノード取得
+  std::vector<Ipv4Address> List = m_nb.GetHelloNeighborList();
 
   //printf("WHC時隣接リスト取得\n");
 
@@ -2445,7 +2450,7 @@ void RoutingProtocol::RecvWHE (Ptr<Packet> p, Ipv4Address receiver, Ipv4Address 
 
   if(receiver == Ipv4Address("10.1.2.1") || receiver == Ipv4Address("10.0.0.2"))
   {
-    printf("WHノードがWHEメッセージを受信\n");
+    //printf("WHノードがWHEメッセージを受信\n");
   }
 
   // std::ofstream writing_file;
@@ -2633,13 +2638,13 @@ void RoutingProtocol::RecvWHE (Ptr<Packet> p, Ipv4Address receiver, Ipv4Address 
         if(WH_at == 0)
         {
           WH2++;
-          printf("検知に参加した回数：%d\n", WH2);
+          //printf("検知に参加した回数：%d\n", WH2);
         }
         else
         {
           
 
-          printf("------WHノードによりRREPを偽造------\n");
+          //printf("------WHノードによりRREPを偽造------\n");
 
           WH1++;
           printf("偽造した回数:%d\n", WH1);
@@ -2667,7 +2672,7 @@ void RoutingProtocol::RecvWHE (Ptr<Packet> p, Ipv4Address receiver, Ipv4Address 
     //}
   
 
-  //printf("何もせずに終了\n");
+  ////printf("何もせずに終了\n");
 
 }
 
@@ -2719,6 +2724,9 @@ RoutingProtocol::ProcessHello (RrepHeader const & rrepHeader, Ipv4Address receiv
     {
       m_nb.Update (rrepHeader.GetDst (), Time (m_allowedHelloLoss * m_helloInterval));
     }
+
+    Time helloLife = Time (m_allowedHelloLoss * m_helloInterval);
+    m_nb.UpdateFromHello (rrepHeader.GetDst(), helloLife);
 }
 
 void

@@ -94,6 +94,25 @@ std::vector<Ipv4Address> Neighbors::GetNeighborList ()
   return IpList;
 }
 
+std::vector<Ipv4Address>
+Neighbors::GetHelloNeighborList ()
+{
+  Purge ();
+
+  std::vector<Ipv4Address> ipList;
+  Time now = Simulator::Now ();
+
+  for (const auto &n : m_nb)
+    {
+      // ★Helloを受信していて、Hello由来の期限が切れていないものだけ
+      if (n.m_seenHello && n.m_helloExpireTime > now)
+        {
+          ipList.push_back (n.m_neighborAddress);
+        }
+    }
+  return ipList;
+}
+
   std::vector<Ipv4Address> Neighbors::NeighborList ()
   {
     std::vector<Ipv4Address> List;
@@ -138,6 +157,43 @@ Neighbors::Update (Ipv4Address addr, Time expire)
   m_nb.push_back (neighbor);
   Purge ();
 }
+
+void
+Neighbors::UpdateFromHello (Ipv4Address addr, Time helloExpire)
+{
+  // helloExpire は「相対時間（Seconds(...)）」で渡す想定にする
+  Time absExpire = helloExpire + Simulator::Now ();
+
+  for (auto i = m_nb.begin (); i != m_nb.end (); ++i)
+    {
+      if (i->m_neighborAddress == addr)
+        {
+          // 近傍の一般期限も伸ばす（Updateと同様）
+          i->m_expireTime = std::max (absExpire, i->m_expireTime);
+
+          // ★Hello由来期限/フラグ（あなたが追加したもの）
+          i->m_seenHello = true;
+          i->m_helloExpireTime = std::max (absExpire, i->m_helloExpireTime);
+
+          // ★MACは渡さない。未知なら従来と同じく補完。
+          if (i->m_hardwareAddress == Mac48Address ())
+            {
+              i->m_hardwareAddress = LookupMacAddress (i->m_neighborAddress);
+            }
+          return;
+        }
+    }
+
+  NS_LOG_LOGIC ("Open link (hello) to " << addr);
+
+  Neighbor neighbor (addr, LookupMacAddress (addr), absExpire);
+  neighbor.m_seenHello = true;
+  neighbor.m_helloExpireTime = absExpire;
+
+  m_nb.push_back (neighbor);
+  Purge ();
+}
+
 
 /**
  * \brief CloseNeighbor structure

@@ -14,6 +14,9 @@
 #include "ns3/udp-l4-protocol.h"       // ★ 追加
 #include "ns3/aodv-routing-protocol.h" // ★ 追加
 #include "ns3/ipv4-address.h"
+#include "ns3/uinteger.h"   // ★ UintegerValue, MakeUintegerAccessor, Checker
+#include "ns3/enum.h"       // （任意）EnumAttributeにするなら
+#include "ns3/boolean.h"    // （任意）
 #include "ns3/buffer.h"
 #include <iomanip>
 
@@ -44,6 +47,24 @@ WhTag::GetInstanceTypeId (void) const
   return GetTypeId ();
 }
 
+// ======================================================
+// ★追加：Hello(RREP形式) 判定ヘルパ
+//   ns-3 AODVのHelloはRREPで hopCount=0, dst==origin==送信元, かつIP宛先がブロードキャスト…等の特徴
+// ======================================================
+static bool
+IsHelloRrep (const aodv::RrepHeader& rrep, const Ipv4Header& ip)
+{
+  // const Ipv4Address ipSrc = ip.GetSource ();
+  // const Ipv4Address ipDst = ip.GetDestination ();
+
+  // Helloメッセージの場合、メッセージをドロップ
+  if (rrep.GetDst () == rrep.GetOrigin ())
+    {
+      return true;
+    }
+  return false;
+}
+
 // ==============================
 // WormholeApp 実装
 // ==============================
@@ -56,7 +77,14 @@ WormholeApp::GetTypeId (void)
   static TypeId tid = TypeId ("ns3::WormholeApp")
     .SetParent<Application> ()
     .SetGroupName ("Wormhole")
-    .AddConstructor<WormholeApp> ();
+    .AddConstructor<WormholeApp> ()
+
+    // ★追加：シナリオから設定できる属性
+    .AddAttribute ("ForwardMode",
+                   "0: tunnel all IPv4 packets, 1: tunnel only RREQ/RREP (exclude Hello).",
+                   UintegerValue (0),
+                   MakeUintegerAccessor (&WormholeApp::m_forwardMode),
+                   MakeUintegerChecker<uint8_t> (0, 1));
   return tid;
 }
 
@@ -64,7 +92,8 @@ WormholeApp::WormholeApp ()
   : m_dev (0),
     m_socket (0),
     m_peer (),
-    m_port (0)
+    m_port (0),
+    m_forwardMode (0)
 {
 }
 
@@ -137,41 +166,102 @@ WormholeApp::PromiscSniff (Ptr<NetDevice> dev,
   if (!copy->PeekHeader (ip))
     return true;
 
-  if (ip.GetProtocol () != UdpL4Protocol::PROT_NUMBER)
+  // ============================
+  // ForwardMode=0: 全て転送
+  // ============================
+  if (m_forwardMode == 0)
+  {
+    Ptr<Packet> sendPkt = pkt->Copy ();
+
+    Mac48Address srcMac = Mac48Address::ConvertFrom (src);
+    Mac48Address dstMac = Mac48Address::ConvertFrom (dst);
+
+    WhTunnelHeader meta;
+    meta.Set(/*etherType=*/protocol,
+              /*packetType=*/static_cast<uint8_t>(type),
+              /*srcMac=*/srcMac,
+              /*dstMac=*/dstMac,
+              /*ipSrc=*/ip.GetSource (),
+              /*ipDst=*/ip.GetDestination ());
+
+    sendPkt->AddHeader (meta);
+
+    if (m_socket)
+      {
+        m_socket->SendTo (sendPkt, 0, InetSocketAddress (m_peer, m_port));
+      }
     return true;
+  }
 
-  copy->RemoveHeader (ip);
-  UdpHeader udp;
-  if (!copy->PeekHeader (udp))
-    return true;
+// ============================
+// ForwardMode=1: RREQ/RREPのみ(Hello除外)
+// ============================
 
-  // AODVポート以外は無視
-  if (udp.GetDestinationPort () != aodv::RoutingProtocol::AODV_PORT &&
-      udp.GetSourcePort      () != aodv::RoutingProtocol::AODV_PORT)
-    return true;
-
-  // ここからトンネル送信：元のパケット（IPヘッダ等を壊してない方）に
-  // L2/IP 情報を付けた WhTunnelHeader を先頭に追加する
-  Ptr<Packet> sendPkt = pkt->Copy ();
-
-  Mac48Address srcMac = Mac48Address::ConvertFrom (src);
-  Mac48Address dstMac = Mac48Address::ConvertFrom (dst);
-
-  WhTunnelHeader meta;
-  meta.Set(/*etherType=*/protocol,
-           /*packetType=*/static_cast<uint8_t>(type),
-           /*srcMac=*/srcMac,
-           /*dstMac=*/dstMac,
-           /*ipSrc=*/ip.GetSource (),
-           /*ipDst=*/ip.GetDestination ());
-
-  sendPkt->AddHeader (meta);
-
-  if (m_socket)
-    {
-      m_socket->SendTo (sendPkt, 0, InetSocketAddress (m_peer, m_port));
-    }
+// UDPでないなら対象外（RREQ/RREPはUDP）
+if (ip.GetProtocol () != UdpL4Protocol::PROT_NUMBER)
   return true;
+
+copy->RemoveHeader (ip);
+UdpHeader udp;
+if (!copy->PeekHeader (udp))
+  return true;
+
+// AODVポート以外は対象外
+if (udp.GetDestinationPort () != aodv::RoutingProtocol::AODV_PORT &&
+    udp.GetSourcePort      () != aodv::RoutingProtocol::AODV_PORT)
+  return true;
+
+// AODVタイプを見て RREQ/RREP のみに限定
+copy->RemoveHeader (udp);
+
+aodv::TypeHeader th;
+if (!copy->RemoveHeader (th))
+  return true;
+
+bool allowTunnel = false;
+
+if (th.Get () == aodv::AODVTYPE_RREQ)
+{
+  allowTunnel = true;
+}
+else if (th.Get () == aodv::AODVTYPE_RREP)
+{
+  aodv::RrepHeader rrep;
+  if (!copy->RemoveHeader (rrep))
+    return true;
+
+  // ★Hello(RREP形式)は除外
+  if (!IsHelloRrep (rrep, ip))
+    {
+      allowTunnel = true;
+    }
+}
+
+if (!allowTunnel)
+  return true;
+
+// ---- ここまで来たらトンネル送信 ----
+Ptr<Packet> sendPkt = pkt->Copy ();
+
+Mac48Address srcMac = Mac48Address::ConvertFrom (src);
+Mac48Address dstMac = Mac48Address::ConvertFrom (dst);
+
+WhTunnelHeader meta;
+meta.Set(/*etherType=*/protocol,
+          /*packetType=*/static_cast<uint8_t>(type),
+          /*srcMac=*/srcMac,
+          /*dstMac=*/dstMac,
+          /*ipSrc=*/ip.GetSource (),
+          /*ipDst=*/ip.GetDestination ());
+
+sendPkt->AddHeader (meta);
+
+if (m_socket)
+{
+  m_socket->SendTo (sendPkt, 0, InetSocketAddress (m_peer, m_port));
+}
+
+return true;
 }
 
 
@@ -198,23 +288,32 @@ WormholeApp::TunnelRecv (Ptr<Socket> socket)
   if (!pkt->RemoveHeader (ip))
     return;
 
+  // UDPでない場合：ForwardMode=0ならそのまま再注入、ForwardMode=1なら対象外なのでdrop
   if (ip.GetProtocol () != UdpL4Protocol::PROT_NUMBER)
-    {
-      // UDPでないならそのまま戻して送る（必要ならdropでもOK）
-      pkt->AddHeader (ip);
-      WhTag tag; pkt->AddPacketTag (tag);
-      m_dev->Send (pkt, meta.GetDstMac (), meta.GetEtherType ());
+  {
+    if (m_forwardMode == 1)
       return;
-    }
 
-  UdpHeader udp;
+    pkt->AddHeader (ip);
+    WhTag tag; pkt->AddPacketTag (tag);
+    m_dev->Send (pkt, meta.GetDstMac (), meta.GetEtherType ());
+    return;
+  }
+
+UdpHeader udp;
   if (!pkt->RemoveHeader (udp))
     return;
 
-  // AODV以外ならそのまま戻して送る
-  if (udp.GetDestinationPort () != ns3::aodv::RoutingProtocol::AODV_PORT &&
-      udp.GetSourcePort      () != ns3::aodv::RoutingProtocol::AODV_PORT)
+  // AODV以外：ForwardMode=0ならそのまま再注入、ForwardMode=1ならdrop
+  const bool isAodv =
+      (udp.GetDestinationPort () == aodv::RoutingProtocol::AODV_PORT ||
+       udp.GetSourcePort      () == aodv::RoutingProtocol::AODV_PORT);
+
+  if (!isAodv)
     {
+      if (m_forwardMode == 1)
+        return;
+
       pkt->AddHeader (udp);
       pkt->AddHeader (ip);
       WhTag tag; pkt->AddPacketTag (tag);
@@ -222,48 +321,66 @@ WormholeApp::TunnelRecv (Ptr<Socket> socket)
       return;
     }
 
-  // AODV type を見て処理（あなたのRREQ処理を維持）
-  ns3::aodv::TypeHeader type;
-  if (pkt->RemoveHeader (type))
+  // ここからAODV：タイプ判定
+  aodv::TypeHeader type;
+  if (!pkt->RemoveHeader (type))
+    return;
+
+  // ForwardMode=1：RREQ/RREP(Hello除外)以外はdrop
+  if (m_forwardMode == 1)
     {
-      if (type.Get () == ns3::aodv::AODVTYPE_RREQ)
+      bool allow = false;
+      if (type.Get () == aodv::AODVTYPE_RREQ)
         {
-          ns3::aodv::RreqHeader rreq;
-          if (pkt->RemoveHeader (rreq))
-            {
-              rreq.SetWHForwardFlag (1);
-              pkt->AddHeader (rreq);
-            }
-          pkt->AddHeader (type);
-        }else if(type.Get () == ns3::aodv::AODVTYPE_RREP)
-        {
-          ns3::aodv::RrepHeader rrep;
-          if (pkt->RemoveHeader (rrep))
-            {
-              rrep.SetWHForwardFlag (1);
-              pkt->AddHeader (rrep);
-            }
-          pkt->AddHeader (type);
+          allow = true;
         }
-      else
+      else if (type.Get () == aodv::AODVTYPE_RREP)
         {
-          pkt->AddHeader (type);
+          aodv::RrepHeader rrepCheck;
+          if (!pkt->RemoveHeader (rrepCheck))
+            return;
+
+          if (IsHelloRrep (rrepCheck, ip))
+            return; // ★Helloは再注入しない
+
+          // 判定のため一度外したので戻しておく（後で改変処理があるため）
+          pkt->AddHeader (rrepCheck);
+          allow = true;
         }
+
+      if (!allow)
+        return;
+    }
+
+  // ---- AODV type を見てあなたのWHForwardFlag処理を維持 ----
+  if (type.Get () == aodv::AODVTYPE_RREQ)
+    {
+      aodv::RreqHeader rreq;
+      if (pkt->RemoveHeader (rreq))
+        {
+          rreq.SetWHForwardFlag (1);
+          pkt->AddHeader (rreq);
+        }
+      pkt->AddHeader (type);
+    }
+  else if (type.Get () == aodv::AODVTYPE_RREP)
+    {
+      aodv::RrepHeader rrep;
+      if (pkt->RemoveHeader (rrep))
+        {
+          // ★ForwardMode=1ではHelloは既にdrop済み
+          rrep.SetWHForwardFlag (1);
+          pkt->AddHeader (rrep);
+        }
+      pkt->AddHeader (type);
     }
   else
     {
-      // TypeHeaderが取れないなら戻せないのでここではdrop推奨
-      // ただしあなたのコード方針に合わせるならそのままでもOK
-      return;
+      pkt->AddHeader (type);
     }
 
-  // 3) “ユニキャストAODV制御も相手側で受信される” ように調整
-  //
-  // 元がユニキャスト(PACKET_HOST)の場合、元のIP宛先は WHノード自身になりやすく、
-  // そのまま相手側に再注入しても誰も処理しない。
-  // → 宛先を全体ブロードキャストへ変更して、近傍ノード群がAODVとして受信できるようにする。
+  // 3) ユニキャスト制御の再注入調整（元コード維持）
   Address l2dst = meta.GetDstMac ();
-
   if (meta.GetPacketType () == static_cast<uint8_t>(NetDevice::PACKET_HOST))
     {
       ip.SetDestination (Ipv4Address ("255.255.255.255"));
@@ -278,7 +395,7 @@ WormholeApp::TunnelRecv (Ptr<Socket> socket)
   WhTag loopTag;
   pkt->AddPacketTag (loopTag);
 
-  // 5) 再注入（L2宛先は上で決めたもの）
+  // 5) 再注入
   m_dev->Send (pkt, l2dst, meta.GetEtherType ());
 }
 

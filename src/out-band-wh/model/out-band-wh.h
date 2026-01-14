@@ -6,6 +6,7 @@
 #include "ns3/ipv4-address.h"
 #include "ns3/socket.h"
 #include "ns3/tag.h"   // ★ WhTag 用
+#include "ns3/uinteger.h"  // ★ 追加（h側でも属性を使うなら入れてOK）
 
 namespace ns3
 {
@@ -74,6 +75,11 @@ private:
   Ptr<Socket>    m_socket; // WH トンネル用 UDP ソケット
   Ipv4Address    m_peer;   // 相方 WH ノードの P2P IP
   uint16_t       m_port;   // WH トンネル用 UDP ポート
+
+  // ★追加：転送モード
+  // 0: 全て転送
+  // 1: RREQ/RREPのみ(Hello除外)
+  uint8_t m_forwardMode {0};
 };
 
 

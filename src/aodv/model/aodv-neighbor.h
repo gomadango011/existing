@@ -68,6 +68,10 @@ public:
     /// Neighbor close indicator
     bool close;
 
+    // ★追加：Hello 由来であることを示す/Hello由来の期限
+    bool m_seenHello = false;
+    Time m_helloExpireTime = Seconds(0);
+
     /**
      * \brief Neighbor structure constructor
      *
@@ -99,6 +103,8 @@ public:
   //隣接ノード情報を取得
   std::vector<Ipv4Address> GetNeighborList ();
 
+  std::vector<Ipv4Address> GetHelloNeighborList ();         // ★追加
+
   std::vector<Ipv4Address> NeighborList ();
 
   /**
@@ -107,6 +113,7 @@ public:
    * \param expire the expire time for the address
    */
   void Update (Ipv4Address addr, Time expire);
+  void UpdateFromHello (Ipv4Address addr, Time helloExpire);
   /// Remove all expired entries
   void Purge ();
   /// Schedule m_ntimer.

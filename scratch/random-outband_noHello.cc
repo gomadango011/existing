@@ -210,8 +210,6 @@ private:
   //WH攻撃のモード 0 =  攻撃なし、1 = 内部WH攻撃、2 = 外部WH攻撃
   uint8_t whmode;
 
-  uint8_t forwardmode;  //0 = 全パケット転送  1 = RREQとRREPのみ転送
-
   // network
   /// nodes used in the example
   NodeContainer nodes;
@@ -258,7 +256,7 @@ int main (int argc, char **argv)
 
 //-----------------------------------------------------------------------------
 AodvExample::AodvExample () :
-  size (400),
+  size (200),
   size_a (5),
   step (50),
   totalTime (30),
@@ -266,11 +264,10 @@ AodvExample::AodvExample () :
   printRoutes (false),
   result_file("deff/p-log.csv"), //結果を保存するファイル
   result_mode(2),
-  WH_size(350),
+  WH_size(500),
   end_distance(800), //エンド間の距離
   iteration(1), //イテレーション
-  whmode(1),
-  forwardmode(0)
+  whmode(2)
 {
 }
 
@@ -295,7 +292,6 @@ AodvExample::Configure (int argc, char **argv)
   cmd.AddValue("WH_size", "WH size", WH_size); //WHの長さ
   cmd.AddValue("end_distance", "end distance", end_distance); //エンド間の距離
   cmd.AddValue("iteration", "iteration", iteration); //イテレーション
-  cmd.AddValue("forwardmode", "forwardmode", forwardmode); //イテレーション
 
   cmd.Parse (argc, argv);
 
@@ -346,100 +342,99 @@ static bool NeedHeaderByIostream(const std::string& path)
 void
 AodvExample::Report (std::ostream &)
 { 
-    bool needHeader = NeedHeaderByIostream(result_file);
-    
+  bool needHeader = NeedHeaderByIostream(result_file);
+
   // ★ 出力ファイルを開く（追記 or 上書き）
-    OpenLogFileOverwrite(ofs,result_file);
+  OpenLogFileOverwrite(ofs,result_file);
 
-    uint32_t totalTP = 0, totalFN = 0, totalFP = 0, totalTN = 0, totalNA = 0;
-    uint64_t totalBytes = 0;
-    uint32_t totalforwardedHello = 0;
-    std::vector<double> latencies;
-    uint32_t latencyCount = 0;
-    Time totalRouteTime = Seconds(0);
+  uint32_t totalTP = 0, totalFN = 0, totalFP = 0, totalTN = 0, totalNA = 0;
+  uint64_t totalBytes = 0;
+  uint32_t totalforwardedHello = 0;
+  std::vector<double> latencies;
+  uint32_t latencyCount = 0;
+  Time totalRouteTime = Seconds(0);
 
-    if (needHeader)
-    {
-        ofs << "seed,nodes,wh_mode,forwardmode,end_distance,"
-            << "tp,fn,fp,tn,"
-            << "wh_detection_rate,false_positive_rate,"
-            << "total_ctrl_bytes,avg_route_latency\n";
-    }
+  if (needHeader)
+  {
+      ofs << "seed,nodes,wh_mode,end_distance,"
+          << "tp,fn,fp,tn,"
+          << "wh_detection_rate,false_positive_rate,"
+          << "total_ctrl_bytes,avg_route_latency\n";
+  }
 
-    for (uint32_t i = 0; i < nodes.GetN(); i++)
-    {
-        Ptr<Ipv4> ipv4 = nodes.Get(i)->GetObject<Ipv4>();
-        Ptr<Ipv4RoutingProtocol> rp = ipv4->GetRoutingProtocol();
-        Ptr<aodv::RoutingProtocol> aodv = DynamicCast<aodv::RoutingProtocol>(rp);
-        if (!aodv) continue;
+  for (uint32_t i = 0; i < nodes.GetN(); i++)
+  {
+      Ptr<Ipv4> ipv4 = nodes.Get(i)->GetObject<Ipv4>();
+      Ptr<Ipv4RoutingProtocol> rp = ipv4->GetRoutingProtocol();
+      Ptr<aodv::RoutingProtocol> aodv = DynamicCast<aodv::RoutingProtocol>(rp);
+      if (!aodv) continue;
 
-        auto stats = aodv->Getevaluation();
+      auto stats = aodv->Getevaluation();
 
-        totalTP += stats.detectedWh;
-        totalFN += stats.undetectedWh;
-        totalFP += stats.falsePositive;
-        totalTN += stats.truenegative;
-        totalNA += stats.notApplicable;
-        totalBytes += stats.totalAodvCtrlBytes;
-        totalforwardedHello += stats.helloForwardedCount;
+      totalTP += stats.detectedWh;
+      totalFN += stats.undetectedWh;
+      totalFP += stats.falsePositive;
+      totalTN += stats.truenegative;
+      totalNA += stats.notApplicable;
+      totalBytes += stats.totalAodvCtrlBytes;
+      totalforwardedHello += stats.helloForwardedCount;
 
-        if(stats.Getroute)
-        {
-          latencyCount++;
-          totalRouteTime += stats.m_routetime;
-        }
+      if(stats.Getroute)
+      {
+        latencyCount++;
+        totalRouteTime += stats.m_routetime;
+      }
 
 
-        // for (const auto &kv : stats.m_latencyTable)
-        // {
-        //     const auto &entry = kv.second;
-        //     if (entry.latency.GetSeconds() > 0)
-        //         latencies.push_back(entry.latency.GetSeconds());
-        // }
-    }
+      // for (const auto &kv : stats.m_latencyTable)
+      // {
+      //     const auto &entry = kv.second;
+      //     if (entry.latency.GetSeconds() > 0)
+      //         latencies.push_back(entry.latency.GetSeconds());
+      // }
+  }
 
-    double detectionRate = (totalTP + totalFN > 0)
-                           ? (double)totalTP / (totalTP + totalFN)
-                           : 0.0;
+  double detectionRate = (totalTP + totalFN > 0)
+                          ? (double)totalTP / (totalTP + totalFN)
+                          : 0.0;
 
-    double falsePositiveRate = (totalFP + totalTN > 0)
-                               ? (double)totalFP / (totalFP + totalTN)
-                               : 0.0;
+  double falsePositiveRate = (totalFP + totalTN > 0)
+                              ? (double)totalFP / (totalFP + totalTN)
+                              : 0.0;
 
-    double avgLatencySec = 0.0;
-    if (latencyCount > 0)
-    {
-        // Time は「秒」にしてから double 平均が安全
-        avgLatencySec = totalRouteTime.GetSeconds() / static_cast<double>(latencyCount);
-    }
+  double avgLatencySec = 0.0;
+  if (latencyCount > 0)
+  {
+      // Time は「秒」にしてから double 平均が安全
+      avgLatencySec = totalRouteTime.GetSeconds() / static_cast<double>(latencyCount);
+  }
 
-    // if (!latencies.empty()) {
-    //     double sum = 0;
-    //     for (double v : latencies) sum += v;
-    //     avgLatency = sum / latencies.size();
-    // }
+  // if (!latencies.empty()) {
+  //     double sum = 0;
+  //     for (double v : latencies) sum += v;
+  //     avgLatency = sum / latencies.size();
+  // }
 
-     ofs << iteration << ","
-        << size << ","
-        << whmode << ","               // WhMode
-        << forwardmode << ","
-        << end_distance << ","
-        << totalTP << ","
-        << totalFN << ","
-        << totalFP << ","
-        << totalTN << ","
-        << detectionRate << ","
-        << falsePositiveRate << ","
-        << totalBytes << ","
-        << avgLatencySec << "\n";
+  ofs << iteration << ","
+      << size << ","
+      << whmode << ","               // WhMode
+      << end_distance << ","
+      << totalTP << ","
+      << totalFN << ","
+      << totalFP << ","
+      << totalTN << ","
+      << detectionRate << ","
+      << falsePositiveRate << ","
+      << totalBytes << ","
+      << avgLatencySec << ","
+      << totalforwardedHello << "\n";
 
-    ofs.close();
+  ofs.close();
 }
 
 void
 AodvExample::CreateNodes ()
 {
-
   //ルートノードの作製
   std::cout << "Creating " << (unsigned)size << " nodes " << step << " m apart.\n";
   nodes.Create (size);
@@ -662,10 +657,7 @@ AodvExample::CreateDevices ()
 
   PointToPointHelper pointToPoint;
   pointToPoint.SetDeviceAttribute ("DataRate", StringValue ("5Mbps"));
-
-  // ptop遅延 = 40ms * m_whsize/100
-  Time ptopDelay = MilliSeconds (40.0 * static_cast<double>(WH_size) / 100.0);
-  pointToPoint.SetChannelAttribute ("Delay", TimeValue (ptopDelay));
+  pointToPoint.SetChannelAttribute ("Delay", StringValue ("2ms"));
 
   // NetDeviceContainer devices;
   mal_devices = pointToPoint.Install (malicious);
@@ -688,8 +680,11 @@ AodvExample::InstallInternetStack ()
   // you can configure AODV attributes here using aodv.Set(name, value)
   InternetStackHelper stack;
   stack.SetRoutingHelper (aodv); // has effect on the next Install ()
-  stack.Install (nodes);
+  stack.Install (not_malicious);
 
+  InternetStackHelper stack2;
+  stack2.Install(malicious);
+  //IDstack2.Install (malicious);
   Ipv4AddressHelper address;
   address.SetBase ("10.0.0.0", "255.0.0.0","0.0.0.1");
   interfaces = address.Assign (devices);
@@ -745,7 +740,7 @@ AodvExample::InstallApplications ()
       Ptr<WormholeApp> whEntry = CreateObject<WormholeApp>();
 
       //0 = 全パケット転送   1 = RREQとRREPのみ転送
-      whEntry->SetAttribute ("ForwardMode", UintegerValue (forwardmode));
+      whEntry->SetAttribute ("ForwardMode", UintegerValue (1));
 
       whEntry->Setup(
           devices.Get(1),                 // node1 の wifi デバイス
@@ -762,7 +757,7 @@ AodvExample::InstallApplications ()
       Ptr<WormholeApp> whExit = CreateObject<WormholeApp>();
 
       //0 = 全パケット転送   1 = RREQとRREPのみ転送
-      whExit->SetAttribute ("ForwardMode", UintegerValue (forwardmode));
+      whExit->SetAttribute ("ForwardMode", UintegerValue (1));
 
       whExit->Setup(
           devices.Get(2),                 // node2 の wifi デバイス

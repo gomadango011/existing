@@ -334,7 +334,7 @@ AodvExample::Report (std::ostream &)
 
     if (needHeader)
     {
-        ofs << "seed,nodes,wh_mode,wait_time,end_distance,"
+        ofs << "seed,nodes,wh_mode,end_distance,"
             << "tp,fn,fp,tn,"
             << "wh_detection_rate,false_positive_rate,"
             << "total_ctrl_bytes,avg_route_latency\n";
