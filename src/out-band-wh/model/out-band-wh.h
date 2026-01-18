@@ -79,7 +79,7 @@ private:
   // ★追加：転送モード
   // 0: 全て転送
   // 1: RREQ/RREPのみ(Hello除外)
-  uint8_t m_forwardMode {0};
+  int m_forwardMode {0};
 };
 
 

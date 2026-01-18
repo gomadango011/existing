@@ -74,7 +74,7 @@ NS_OBJECT_ENSURE_REGISTERED (WormholeApp);
 TypeId
 WormholeApp::GetTypeId (void)
 {
-  static TypeId tid = TypeId ("ns3::WormholeApp")
+  static TypeId tid = TypeId ("ns3::WormholeAppOutBand")
     .SetParent<Application> ()
     .SetGroupName ("Wormhole")
     .AddConstructor<WormholeApp> ()
@@ -84,7 +84,7 @@ WormholeApp::GetTypeId (void)
                    "0: tunnel all IPv4 packets, 1: tunnel only RREQ/RREP (exclude Hello).",
                    UintegerValue (0),
                    MakeUintegerAccessor (&WormholeApp::m_forwardMode),
-                   MakeUintegerChecker<uint8_t> (0, 1));
+                   MakeUintegerChecker<int> (0, 1));
   return tid;
 }
 

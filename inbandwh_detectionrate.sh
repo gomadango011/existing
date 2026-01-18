@@ -7,15 +7,20 @@ SCENARIO="random-inband"
 # ===== experiment params =====
 RUN_COUNT=20
 TIME=30
-SIZE=600
-END_DISTANCE=800
+
+# 固定条件（既存手法 baseline）
+NODES=400
+END_DISTANCE=600
+
+# WHリンク長（WH_SIZE）
 WH_SIZES=(300 400 500 600)
 
-# ===== output dir (auto increment if exists) =====
-ROOT_DIR="result_existing/inband"
+# ===== output dir =====
+ROOT_DIR="results/inband"
 BASE_NAME="WHdetectionrate"
 mkdir -p "${ROOT_DIR}"
 
+# WHdetectionrate または WHdetectionrate_001, _002 ... を作る
 BASE_DIR="${ROOT_DIR}/${BASE_NAME}"
 if [[ -e "${BASE_DIR}" ]]; then
   n=1
@@ -31,6 +36,7 @@ fi
 
 LOG_DIR="${BASE_DIR}/logs"
 mkdir -p "${LOG_DIR}"
+
 FAILED_LOG="${BASE_DIR}/failed.log"
 : > "${FAILED_LOG}"
 
@@ -38,36 +44,35 @@ echo "[INFO] start: $(date)"
 echo "[INFO] base output dir: ${BASE_DIR}"
 
 if [[ ! -x "${WAF}" ]]; then
-  echo "[ERROR] ${WAF} not found or not executable. Run this script from ns-3.30 root."
+  echo "[ERROR] ${WAF} not found or not executable. Run this script from ns-3 root."
   exit 1
 fi
 
 for WH in "${WH_SIZES[@]}"; do
-  WH_DIR="${BASE_DIR}/WHsize_${WH}"
-  mkdir -p "${WH_DIR}"
-
-  OUT="${WH_DIR}/result.csv"
-  [[ -f "${OUT}" ]] || : > "${OUT}"  # 空ファイル作成（C++側のヘッダー判定用）
+  # 出力CSV：results/inband/WHdetectionrate_???/WHsize300.csv のように保存
+  OUT="${BASE_DIR}/WHsize${WH}.csv"
+  [[ -f "${OUT}" ]] || : > "${OUT}"  # C++側のヘッダー判定用に空ファイル作成
 
   echo "[INFO] WH_size=${WH} -> ${OUT}"
 
   for ((i=1; i<=RUN_COUNT; i++)); do
-    STDOUT_LOG="${LOG_DIR}/wh_${WH}_iter_${i}.out"
-    STDERR_LOG="${LOG_DIR}/wh_${WH}_iter_${i}.err"
+    STDOUT_LOG="${LOG_DIR}/WHsize${WH}_seed_${i}.out"
+    STDERR_LOG="${LOG_DIR}/WHsize${WH}_seed_${i}.err"
 
     # ★比較手法 random-inband は --wait_time を受け取らないので渡さない
-    RUN_STR="${SCENARIO} --size=${SIZE} --time=${TIME} --WH_size=${WH} --end_distance=${END_DISTANCE} --iteration=${i} --result_file=${OUT} --forwardmode=0"
+    # ※ここでは --size をノード数として扱う前提（あなたの既存スクリプト踏襲）
+    RUN_STR="${SCENARIO} --size=${NODES} --time=${TIME} --WH_size=${WH} --end_distance=${END_DISTANCE} --iteration=${i} --result_file=${OUT} --forwardmode=0"
 
     echo "[RUN] ${WAF} --run \"${RUN_STR}\"" | tee -a "${STDOUT_LOG}"
     "${WAF}" --run "${RUN_STR}" > "${STDOUT_LOG}" 2> "${STDERR_LOG}"
     RET=$?
 
     if [[ ${RET} -ne 0 ]]; then
-      echo "[FAIL] WH=${WH} iter=${i} (exit=${RET})" | tee -a "${FAILED_LOG}"
+      echo "[FAIL] WH=${WH} seed=${i} (exit=${RET})" | tee -a "${FAILED_LOG}"
       continue
     fi
 
-    echo "[OK] WH=${WH} iter=${i}"
+    echo "[OK] WH=${WH} seed=${i}"
   done
 done
 

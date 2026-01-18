@@ -210,7 +210,7 @@ private:
   //WH攻撃のモード 0 =  攻撃なし、1 = 内部WH攻撃、2 = 外部WH攻撃
   uint8_t whmode;
 
-  uint8_t forwardmode;  //0 = 全パケット転送  1 = RREQとRREPのみ転送
+  int forwardmode;  //0 = 全パケット転送  1 = RREQとRREPのみ転送
 
   // network
   /// nodes used in the example
