@@ -158,7 +158,7 @@ RoutingProtocol::RoutingProtocol ()
     m_blackListTimeout (Time (m_rreqRetries * m_netTraversalTime)),//ノードがブラックリストに登録された時間
     m_maxQueueLen (64),//ルーティングプロトコルがバッファすることを許可するパケットの最大数。
     m_maxQueueTime (Seconds (30)),//ルーティング・プロトコルがパケットをバッファリングすることが許される最大時間。
-    m_destinationOnly (true),//宛先のみがこのRREQに応答できることを示す。
+    m_destinationOnly (false),//宛先のみがこのRREQに応答できることを示す。
     m_gratuitousReply (true),//RREPをルート探索を行ったノードにユニキャストすべきかどうかを示す。
     m_enableHello (false),//ハローメッセージが有効かどうかを示す。
     m_routingTable (m_deletePeriod),//ルーティングテーブル

@@ -2,24 +2,25 @@
 set -u
 
 WAF="./waf"
-SCENARIO="random-outband"
+SCENARIO="random-recvonly-inband"
 
 # ===== experiment params =====
 RUN_COUNT=20
 TIME=30
 
-# 固定条件（要件）
+# 固定条件（既存手法 baseline）
 NODES=400
 END_DISTANCE=800
 
 # WHリンク長（WH_SIZE）
 WH_SIZES=(300 400 500 600)
 
-# ===== output dir (auto increment if exists) =====
-ROOT_DIR="results/outband/nohello"
+# ===== output dir =====
+ROOT_DIR="results/inband/recvonly"
 BASE_NAME="WHdetectionrate"
 mkdir -p "${ROOT_DIR}"
 
+# WHdetectionrate または WHdetectionrate_001, _002 ... を作る
 BASE_DIR="${ROOT_DIR}/${BASE_NAME}"
 if [[ -e "${BASE_DIR}" ]]; then
   n=1
@@ -48,19 +49,25 @@ if [[ ! -x "${WAF}" ]]; then
 fi
 
 for WH in "${WH_SIZES[@]}"; do
-  # 例: results/outband/nohello/WHdetectionrate_001/WHsize300.csv
+  # 出力CSV：results/inband/WHdetectionrate_???/WHsize300.csv のように保存
   OUT="${BASE_DIR}/WHsize${WH}.csv"
-  [[ -f "${OUT}" ]] || : > "${OUT}"   # 空ファイル作成（C++側ヘッダー判定用）
+  [[ -f "${OUT}" ]] || : > "${OUT}"  # C++側のヘッダー判定用に空ファイル作成
 
   echo "[INFO] WH_size=${WH} -> ${OUT}"
+
+  # ★ WH_size=600 のときだけ destination only を true
+  DEST_ONLY="false"
+  if [[ "${WH}" -eq 600 ]]; then
+    DEST_ONLY="true"
+  fi
 
   for ((i=1; i<=RUN_COUNT; i++)); do
     STDOUT_LOG="${LOG_DIR}/WHsize${WH}_seed_${i}.out"
     STDERR_LOG="${LOG_DIR}/WHsize${WH}_seed_${i}.err"
 
-    # nohello -> forwardmode=1
-    # ※ --size をノード数として使う前提（必要なら --nodes に変更）
-    RUN_STR="${SCENARIO} --size=${NODES} --time=${TIME} --WH_size=${WH} --end_distance=${END_DISTANCE} --iteration=${i} --result_file=${OUT} --forwardmode=1"
+    # ★比較手法 random-inband は --wait_time を受け取らないので渡さない
+    # ※ここでは --size をノード数として扱う前提（あなたの既存スクリプト踏襲）
+    RUN_STR="${SCENARIO} --size=${NODES} --time=${TIME} --WH_size=${WH} --end_distance=${END_DISTANCE} --iteration=${i} --result_file=${OUT} --forwardmode=0 --destination_only=${DEST_ONLY}"
 
     echo "[RUN] ${WAF} --run \"${RUN_STR}\"" | tee -a "${STDOUT_LOG}"
     "${WAF}" --run "${RUN_STR}" > "${STDOUT_LOG}" 2> "${STDERR_LOG}"
